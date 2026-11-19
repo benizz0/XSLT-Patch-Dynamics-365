@@ -191,7 +191,7 @@ Les correctifs Dynamics (appliqués et prévus) sont listés dans
 
 ## Licences
 
-- Code de ce dépôt : BSD-3-Clause.
+- Code de ce dépôt : BSD-3-Clause ([LICENSE](LICENSE)).
 - `vendor/xslt_polyfill` : fork local de
   [mfreed7/xslt_polyfill](https://github.com/mfreed7/xslt_polyfill) (version et commit dans
   [UPSTREAM.json](vendor/xslt_polyfill/UPSTREAM.json)). BSD-3-Clause, © 2025 Mason Freed
