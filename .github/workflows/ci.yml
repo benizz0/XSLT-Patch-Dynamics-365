@@ -41,7 +41,7 @@ jobs:
           node scripts/build.mjs --managed
 
       - name: Upload solutions
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: solutions-${{ github.sha }}
           path: dist/*.zip
