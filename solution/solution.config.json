@@ -17,18 +17,21 @@
     "8.2": {
       "packageVersion": "8.2",
       "organizationVersion": "8.2.0.0",
+      "customizationsOrganizationAttributes": false,
       "rootComponentBehavior": false,
       "stripCustomizationNodes": ["CustomControls", "EntityDataProviders"]
     },
     "9.1": {
       "packageVersion": "9.1",
       "organizationVersion": "9.1.0.0",
+      "customizationsOrganizationAttributes": true,
       "rootComponentBehavior": true,
       "stripCustomizationNodes": []
     },
     "9.2": {
       "packageVersion": "9.2",
       "organizationVersion": "9.2.26111.138",
+      "customizationsOrganizationAttributes": true,
       "rootComponentBehavior": true,
       "stripCustomizationNodes": []
     }
