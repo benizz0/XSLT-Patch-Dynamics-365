@@ -5,9 +5,10 @@ Toutes les versions de la solution Dynamics `XSLT_Patch`. Le numéro est celui d
 
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
-## [Non publié]
+## [1.0.0.6] - 2026-11-19
 
-Outillage seulement : la solution elle-même ne change pas.
+Outillage seulement : le contenu de la solution (loader, polyfill, ribbon) est celui de
+1.0.0.5. Première version publiée par le workflow Release, en solutions gérées.
 
 ### Ajouté
 
