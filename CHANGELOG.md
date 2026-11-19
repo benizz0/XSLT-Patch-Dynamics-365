@@ -5,6 +5,18 @@ Toutes les versions de la solution Dynamics `XSLT_Patch`. Le numéro est celui d
 
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [Non publié]
+
+### Corrigé
+
+- **Workflow Release : une version refusée n'arrête plus rien (#2).** L'étape « Set
+  version » écrivait `echo "result=$(node scripts/release.mjs set-version …)"` : son statut
+  était celui d'`echo`, toujours 0. Une version inférieure à l'actuelle, sans tag existant,
+  allait donc jusqu'au tag et à la release, avec les solutions de la version courante. Le
+  résultat est maintenant affecté d'abord (`result=$(…)`, dont le statut arrête le job sous
+  `bash -e`), puis contrôlé (`changed` ou `unchanged`) avant d'être écrit dans
+  `$GITHUB_OUTPUT`.
+
 ## [1.0.0.6] - 2026-11-19
 
 Outillage seulement : le contenu de la solution (loader, polyfill, ribbon) est celui de
