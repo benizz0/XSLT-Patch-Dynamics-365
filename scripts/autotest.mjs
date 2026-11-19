@@ -40,6 +40,10 @@ const args = [
   '--no-first-run',
   '--no-default-browser-check',
   '--disable-popup-blocking',
+  // Chrome without XSLT in every window (popups, about:blank), like Chrome 158.
+  // test/harness/sim.js only removes it from harness pages; older Chrome
+  // builds (CI runners) still have it elsewhere.
+  '--disable-blink-features=XSLT',
   // GitHub Linux runners (Ubuntu 24.04) block the Chrome sandbox (AppArmor).
   ...(process.env.CI && process.platform === 'linux' ? ['--no-sandbox'] : []),
   `--user-data-dir=${profile}`,

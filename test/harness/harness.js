@@ -44,6 +44,21 @@
 
   async function autotest() {
     try {
+      // Environment: is native XSLT present outside the harness pages?
+      var probe = (function () {
+        try {
+          var append = Node.prototype.appendChild.__bnzOriginal || Node.prototype.appendChild;
+          var fr = document.createElement('iframe');
+          append.call(document.body, fr);
+          var P = fr.contentWindow.XSLTProcessor;
+          var kind = P ? (P.__bnzStub ? 'stub' : 'native') : 'none';
+          fr.parentNode.removeChild(fr);
+          return kind;
+        } catch (e) {
+          return 'error ' + e.message;
+        }
+      })();
+      report('environment: XSLTProcessor in a fresh about:blank = ' + probe, 'info', navigator.userAgent);
       var enabled = bnz.XsltPatch.Ribbon.enable();
       report('enable rule returns false (button hidden)', enabled === false ? 'pass' : 'fail', String(enabled));
       var stub = window.XSLTProcessor && window.XSLTProcessor.__bnzStub;
