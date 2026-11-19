@@ -21,7 +21,11 @@ Outillage seulement : la solution elle-même ne change pas.
   **9.1** (`SolutionPackageVersion="9.1"`), ajoutée aux cibles par défaut.
 - `build.ps1` : `-Managed` et cible 9.1.
 - `autotest.mjs` : `--no-sandbox` sur les runners Linux en CI (sandbox Chrome bloqué par
-  AppArmor sur Ubuntu 24.04).
+  AppArmor sur Ubuntu 24.04), et Chrome lancé avec `--disable-blink-features=XSLT`. Le
+  Chrome du runner (157) a encore XSLT natif dans les popups et `about:blank`, où
+  `test/harness/sim.js` ne passe pas : les cas popup échouaient. Le banc affiche maintenant
+  l'environnement (XSLT natif présent ou non hors des pages du banc).
+- Workflows en Node 24 (`checkout@v5`, `setup-node@v5`, `upload-artifact@v7`).
 
 ## [1.0.0.5] - 2026-11-19
 
