@@ -40,6 +40,8 @@ const args = [
   '--no-first-run',
   '--no-default-browser-check',
   '--disable-popup-blocking',
+  // GitHub Linux runners (Ubuntu 24.04) block the Chrome sandbox (AppArmor).
+  ...(process.env.CI && process.platform === 'linux' ? ['--no-sandbox'] : []),
   `--user-data-dir=${profile}`,
   '--virtual-time-budget=180000',
   '--dump-dom',

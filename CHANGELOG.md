@@ -5,6 +5,24 @@ Toutes les versions de la solution Dynamics `XSLT_Patch`. Le numéro est celui d
 
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [Non publié]
+
+Outillage seulement : la solution elle-même ne change pas.
+
+### Ajouté
+
+- **CI GitHub Actions** (`ci.yml`) : `npm ci` + `npm test` (Chrome headless) sur chaque push
+  vers `main` et chaque pull request, solutions construites en artefact.
+- **Release GitHub Actions** (`release.yml`, déclenchement manuel avec la version `a.b.c.d`) :
+  version écrite dans `solution.config.json`, tests, solutions gérées 8.2, 9.1 et 9.2, commit
+  de version, tag `a.b.c.d`, release avec les zips en assets et les notes du CHANGELOG.
+- `scripts/release.mjs` : `set-version` (refuse une version inférieure) et `notes`.
+- Build : option `--managed` (`<Managed>1</Managed>`, zips suffixés `_managed`) et cible
+  **9.1** (`SolutionPackageVersion="9.1"`), ajoutée aux cibles par défaut.
+- `build.ps1` : `-Managed` et cible 9.1.
+- `autotest.mjs` : `--no-sandbox` sur les runners Linux en CI (sandbox Chrome bloqué par
+  AppArmor sur Ubuntu 24.04).
+
 ## [1.0.0.5] - 2026-11-19
 
 Test de 1.0.0.4 sur l'org online 9.2 : le ribbon de la Recherche avancée s'affiche

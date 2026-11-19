@@ -3,17 +3,19 @@
   Construit la solution Dynamics XSLT_Patch (wrapper Windows de scripts/build.mjs).
 
 .EXAMPLE
-  .\scripts\build.ps1                      # cibles 8.2 et 9.2
+  .\scripts\build.ps1                      # cibles 8.2, 9.1 et 9.2
   .\scripts\build.ps1 -Target 8.2
   .\scripts\build.ps1 -Version 1.0.1.0 -NoMinify
+  .\scripts\build.ps1 -Managed             # solutions managées
 #>
 [CmdletBinding()]
 param(
-  [ValidateSet('8.2', '9.2')]
+  [ValidateSet('8.2', '9.1', '9.2')]
   [string[]] $Target,
   [string] $Version,
   [switch] $NoMinify,
-  [switch] $Check
+  [switch] $Check,
+  [switch] $Managed
 )
 
 $ErrorActionPreference = 'Stop'
@@ -32,6 +34,7 @@ foreach ($t in $Target) { $argsList += @('--target', $t) }
 if ($Version) { $argsList += @('--version', $Version) }
 if ($NoMinify) { $argsList += '--no-minify' }
 if ($Check) { $argsList += '--check' }
+if ($Managed) { $argsList += '--managed' }
 
 & node @argsList
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

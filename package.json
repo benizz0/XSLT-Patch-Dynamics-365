@@ -10,7 +10,9 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "build:82": "node scripts/build.mjs --target 8.2",
+    "build:91": "node scripts/build.mjs --target 9.1",
     "build:92": "node scripts/build.mjs --target 9.2",
+    "build:managed": "node scripts/build.mjs --managed",
     "build:dev": "node scripts/build.mjs --no-minify",
     "check": "node scripts/build.mjs --check",
     "serve": "node scripts/serve.mjs",

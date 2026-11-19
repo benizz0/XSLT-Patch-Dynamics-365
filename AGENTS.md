@@ -14,12 +14,14 @@ charge un loader. Le loader détecte l'absence de XSLT natif et injecte un fork 
 | But | Commande |
 |-----|----------|
 | Installer | `npm install` (terser seulement) |
-| Build complet (zips 8.2 + 9.2) | `npm run build` |
+| Build complet (zips 8.2, 9.1, 9.2) | `npm run build` |
+| Solutions gérées | `node scripts/build.mjs --managed` |
 | Build sans zip, contrôles seuls | `npm run check` |
 | Tests (headless Chrome/Edge) | `npm test` |
 | Banc manuel | `npm run serve` puis http://127.0.0.1:8282/ |
 | Écart fork / upstream | `npm run vendor:status` (clone dans le temp de l'OS) |
 | Nettoyer | `npm run clean` |
+| Release (version, tag, assets) | workflow GitHub *Release*, jamais à la main |
 
 Après **toute** modification de `src/`, `solution/` ou `vendor/` : lancer `npm test`.
 Il doit afficher `AUTOTEST PASS`. Si aucun navigateur n'est disponible, lancer au moins

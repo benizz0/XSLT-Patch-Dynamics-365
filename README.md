@@ -54,7 +54,7 @@ bouton s'active et affiche l'état du patch.
 ```text
 .
 ├─ solution/
-│  ├─ solution.config.json   # nom, version, éditeur (bnz), langues, cibles 8.2/9.2, web resources (GUID fixes)
+│  ├─ solution.config.json   # nom, version, éditeur (bnz), langues, cibles 8.2/9.1/9.2, web resources (GUID fixes)
 │  ├─ templates/             # Solution.xml, Customizations.xml (avec jetons {{...}})
 │  ├─ ribbon/RibbonDiffXml.xml  # ribbon applicatif : bouton, commande, règle Enable
 │  └─ reference/9.2/         # export brut d'origine (base des métadonnées)
@@ -64,7 +64,8 @@ bouton s'active et affiche l'état du patch.
 ├─ vendor/xslt_polyfill/     # fork local d'upstream (+ dist/xslt-wasm.js, glue emscripten)
 │  ├─ UPSTREAM.json          # commit et version d'origine
 │  └─ DYNAMICS_PATCHES.md    # correctifs appliqués et backlog
-├─ scripts/                  # build, zip, serveur de test, autotest, état du fork
+├─ scripts/                  # build, zip, serveur de test, autotest, release, état du fork
+├─ .github/workflows/        # CI (tests) et Release (tag + solutions gérées)
 ├─ test/harness/             # banc de test sans Dynamics (Xrm simulé, iframe, SSRS, Recherche avancée)
 ├─ CHANGELOG.md              # historique des versions de la solution
 ├─ build/                    # (généré) web resources prêtes
@@ -82,9 +83,10 @@ bouton s'active et affiche l'état du patch.
 
 ```powershell
 npm install
-npm run build              # dist/XSLT_Patch_<version>_crm82.zip et ..._crm92.zip
+npm run build              # dist/XSLT_Patch_<version>_crm82.zip, ..._crm91.zip, ..._crm92.zip
 npm run build:82           # une seule cible
 node scripts/build.mjs --version 1.0.1.0
+node scripts/build.mjs --managed           # solutions gérées (..._managed.zip)
 npm run build:dev          # polyfill non minifié (debug)
 .\scripts\build.ps1 -Target 8.2 -Version 1.0.1.0   # équivalent PowerShell
 ```
@@ -92,14 +94,41 @@ npm run build:dev          # polyfill non minifié (debug)
 | Cible | Pour | Différences |
 |-------|------|-------------|
 | `8.2` | CRM 8.2 (et importable en 9.x) | `SolutionPackageVersion="8.2"`, sans `behavior` sur les RootComponents, sans `CustomControls` ni `EntityDataProviders` |
+| `9.1` | 9.0 et 9.1 on-premise | comme `9.2`, avec `SolutionPackageVersion="9.1"` |
 | `9.2` | 9.0 à 9.2, online et on-premise | métadonnées identiques à l'export de référence |
 
-La solution est **non gérée**. Pour une version gérée, importer la solution non gérée dans
-une org de dev, puis l'exporter en gérée.
+Par défaut, la solution est **non gérée**. `--managed` produit une solution **gérée**
+(`<Managed>1</Managed>`, suffixe `_managed`). Ce sont celles publiées dans les releases
+GitHub. Une solution gérée ne s'exporte pas et se désinstalle d'un bloc ; elle n'a pas
+encore été importée dans une org réelle.
 
 **Avant chaque livraison, incrémenter la version** (`solution.config.json` ou `--version`)
 et compléter [CHANGELOG.md](CHANGELOG.md). La version sert de cache-buster (`?ver=`) pour les
 web resources.
+
+## CI et releases (GitHub Actions)
+
+- **CI** (`.github/workflows/ci.yml`) : à chaque push sur `main` et à chaque pull request vers
+  `main`. `npm ci`, `npm test` (Chrome headless), puis build des solutions gérées et non
+  gérées, gardées 14 jours en artefact du run.
+- **Release** (`.github/workflows/release.yml`) : manuelle. *Actions > Release > Run
+  workflow*, sur `main`, avec la version au format `a.b.c.d` :
+  1. refuse un format invalide, un tag existant ou une version inférieure à celle de
+     `solution.config.json` ;
+  2. écrit la version dans `solution.config.json`, lance `npm test` ;
+  3. construit les solutions **gérées** 8.2, 9.1 et 9.2 ;
+  4. commite la version sur `main` (`chore(release): a.b.c.d`) si elle a changé, crée le tag
+     `a.b.c.d` ;
+  5. publie la release GitHub avec les trois zips en assets. Les notes viennent de la section
+     `## [a.b.c.d]` de `CHANGELOG.md` (notes générées par GitHub si elle manque).
+
+  Écrire l'entrée du CHANGELOG **avant** de lancer la release. Si `main` est protégée, le
+  workflow doit avoir le droit d'y pousser.
+
+```powershell
+node scripts/release.mjs set-version 1.0.1.0   # ce que fait la release, en local
+node scripts/release.mjs notes 1.0.0.5         # section du CHANGELOG utilisée comme notes
+```
 
 ## Installer
 

@@ -8,7 +8,7 @@
       <Description description="{{DESCRIPTION}}" languagecode="{{BASE_LANGUAGE}}" />
     </Descriptions>
     <Version>{{VERSION}}</Version>
-    <Managed>0</Managed>
+    <Managed>{{MANAGED}}</Managed>
     <Publisher>
       <UniqueName>{{PUBLISHER_UNIQUE_NAME}}</UniqueName>
       <LocalizedNames>

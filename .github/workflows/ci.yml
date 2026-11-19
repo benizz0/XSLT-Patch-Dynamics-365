@@ -1,0 +1,48 @@
+name: CI
+
+# Tests on every push to main and every pull request targeting main.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Build + tests (headless Chrome)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # build --check (ES5 loader, XML, tokens) then the harness in headless Chrome.
+      - name: Test
+        run: npm test
+
+      - name: Build solutions (unmanaged and managed)
+        run: |
+          npm run build
+          node scripts/build.mjs --managed
+
+      - name: Upload solutions
+        uses: actions/upload-artifact@v4
+        with:
+          name: solutions-${{ github.sha }}
+          path: dist/*.zip
+          retention-days: 14

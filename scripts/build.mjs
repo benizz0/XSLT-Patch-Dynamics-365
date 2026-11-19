@@ -1,16 +1,17 @@
 #!/usr/bin/env node
 // Build the Dynamics solution package(s).
 //
-//   node scripts/build.mjs                 -> all default targets (8.2 + 9.2)
+//   node scripts/build.mjs                 -> all default targets (8.2, 9.1, 9.2)
 //   node scripts/build.mjs --target 8.2    -> one target (repeatable)
 //   node scripts/build.mjs --version 1.0.1.0
+//   node scripts/build.mjs --managed       -> managed solutions (<Managed>1</Managed>)
 //   node scripts/build.mjs --no-minify     -> readable polyfill (debug)
 //   node scripts/build.mjs --check         -> build web resources + checks, no zip
 //
 // Outputs:
 //   build/webresources/<web resource name>   (served by `npm run serve`)
 //   dist/<target>/                           (unpacked solution, for review)
-//   dist/<UniqueName>_<version>_crm<target>.zip
+//   dist/<UniqueName>_<version>_crm<target>[_managed].zip
 import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
@@ -23,15 +24,16 @@ const VENDOR = P('vendor', 'xslt_polyfill');
 
 // ---------- args ----------
 function parseArgs(argv) {
-  const args = { targets: [], version: null, minify: true, check: false };
+  const args = { targets: [], version: null, minify: true, check: false, managed: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--target') args.targets.push(argv[++i]);
     else if (a === '--version') args.version = argv[++i];
     else if (a === '--no-minify') args.minify = false;
     else if (a === '--check') args.check = true;
+    else if (a === '--managed') args.managed = true;
     else if (a === '--help' || a === '-h') {
-      console.log(fs.readFileSync(fileURLToPath(import.meta.url), 'utf8').split('\n').slice(1, 15).join('\n'));
+      console.log(fs.readFileSync(fileURLToPath(import.meta.url), 'utf8').split('\n').slice(1, 16).join('\n'));
       process.exit(0);
     } else throw new Error(`Unknown argument: ${a}`);
   }
@@ -171,7 +173,7 @@ function checkXml(label, xml) {
   assert(stack.length === 0, `${label}: unclosed <${stack.pop()}>`);
 }
 
-function buildSolution(cfg, targetKey, version, webResourceContents) {
+function buildSolution(cfg, targetKey, version, webResourceContents, managed) {
   const target = cfg.targets[targetKey];
   assert(target, `Unknown target ${targetKey} (see solution/solution.config.json "targets")`);
   const loader = cfg.webResources.find((w) => w.build === 'loader');
@@ -201,6 +203,7 @@ function buildSolution(cfg, targetKey, version, webResourceContents) {
     DISPLAY_NAME: xmlEscape(cfg.displayName),
     DESCRIPTION: xmlEscape(cfg.description),
     VERSION: version,
+    MANAGED: managed ? '1' : '0',
     PUBLISHER_UNIQUE_NAME: xmlEscape(cfg.publisher.uniqueName),
     PUBLISHER_DISPLAY_NAME: xmlEscape(cfg.publisher.displayName),
     PUBLISHER_WEBSITE: xmlEscape(cfg.publisher.supportingWebsiteUrl),
@@ -254,18 +257,19 @@ async function main() {
   }
 
   for (const t of targets) {
-    const files = buildSolution(cfg, t, version, contents);
-    const stage = P('dist', `crm${t.replace('.', '')}`);
+    const files = buildSolution(cfg, t, version, contents, args.managed);
+    const suffix = args.managed ? '_managed' : '';
+    const stage = P('dist', `crm${t.replace('.', '')}${suffix}`);
     fs.rmSync(stage, { recursive: true, force: true });
     for (const f of files) write(path.join(stage, ...f.name.split('/')), f.data);
     if (args.check) {
-      console.log(`> ${t}: checked (${files.length} files, no zip)`);
+      console.log(`> ${t}${suffix}: checked (${files.length} files, no zip)`);
       continue;
     }
-    const zipName = `${cfg.uniqueName}_${version.replace(/\./g, '_')}_crm${t.replace('.', '')}.zip`;
+    const zipName = `${cfg.uniqueName}_${version.replace(/\./g, '_')}_crm${t.replace('.', '')}${suffix}.zip`;
     const zipPath = P('dist', zipName);
     write(zipPath, createZip(files));
-    console.log(`> ${t}: dist/${zipName}  ${(fs.statSync(zipPath).size / 1024).toFixed(1)} KB`);
+    console.log(`> ${t}${suffix}: dist/${zipName}  ${(fs.statSync(zipPath).size / 1024).toFixed(1)} KB`);
   }
 }
 
