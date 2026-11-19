@@ -7,6 +7,28 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
 ## [Non publié]
 
+## [1.0.0.8] - 2026-11-19
+
+Correctif d'import CRM 8.2 : le package 1.0.0.7 était refusé à l'import de la web resource
+du polyfill. Comportement du loader et du polyfill inchangé : seuls le nom et le GUID de la
+web resource du polyfill changent.
+
+### Corrigé
+
+- **Import refusé sur CRM 8.2 : nom de web resource `xslt-polyfill.js` (#9).** CRM 8.2
+  n'accepte dans un nom de web resource que lettres, chiffres, points et barres obliques
+  non consécutives (plus le `_` du préfixe) : l'import s'arrêtait sur
+  `bnz_/xsltpatch/xslt-polyfill.js` (`0x8004F117`). Le polyfill devient
+  **`bnz_/xsltpatch/xsltpolyfill.js`**, avec un **nouveau GUID**
+  (`6cc54fc8-f34e-41ab-816d-077d0108f770`) : Dynamics ne renomme pas une web resource
+  existante. L'ancienne (`bd9d1a25-e5eb-434a-8d3d-d12ade8086b2`) est listée dans
+  `retiredWebResources` de `solution.config.json`. Sur une org 9.x déjà en 1.0.0.7, une
+  mise à niveau (*Upgrade*) de la solution gérée la supprime ; une simple mise à jour
+  (*Update*) la laisse en place, inutilisée. Le loader reçoit le nom au build (`{{POLYFILL_WEBRESOURCE}}`), aucune
+  autre référence à mettre à jour.
+- **Build : contrôle des web resources.** Nom conforme à la règle 8.2 et au préfixe
+  `bnz_/`, GUID bien formé, ni GUID ni nom en double, aucun GUID ou nom retiré réutilisé.
+
 ## [1.0.0.7] - 2026-11-19
 
 Correctif d'import CRM 8.2 : le package 8.2 de 1.0.0.6 était refusé à la validation XSD.

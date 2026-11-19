@@ -23,7 +23,7 @@ elle qui lance le patch.
    vérifie si un `XSLTProcessor` fonctionne, et s'il y a du XSLT dans la page : instruction
    `<?xml-stylesheet?>`, éléments dans l'espace de noms XSL, URL de rapport SSRS.
 2. **Chargement du fork.** S'il manque un `XSLTProcessor` utilisable :
-   - page avec du XSLT ou page de rapport : le polyfill (`bnz_/xsltpatch/xslt-polyfill.js`,
+   - page avec du XSLT ou page de rapport : le polyfill (`bnz_/xsltpatch/xsltpolyfill.js`,
      environ 1,4 Mo) est téléchargé une fois puis exécuté dans la fenêtre ;
    - sinon, le loader installe un **stub paresseux**. Le premier `new XSLTProcessor()`
      télécharge et installe le vrai polyfill de façon synchrone. Une page qui n'utilise

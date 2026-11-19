@@ -46,12 +46,20 @@
       "build": "loader"
     },
     {
-      "id": "bd9d1a25-e5eb-434a-8d3d-d12ade8086b2",
-      "name": "bnz_/xsltpatch/xslt-polyfill.js",
+      "id": "6cc54fc8-f34e-41ab-816d-077d0108f770",
+      "name": "bnz_/xsltpatch/xsltpolyfill.js",
       "displayName": "XSLT Patch - Polyfill (fork xslt_polyfill)",
       "description": "Fork local de mfreed7/xslt_polyfill avec correctifs Dynamics. Chargé à la demande par le loader.",
       "type": 3,
       "build": "polyfill"
+    }
+  ],
+  "retiredWebResources": [
+    {
+      "id": "bd9d1a25-e5eb-434a-8d3d-d12ade8086b2",
+      "name": "bnz_/xsltpatch/xslt-polyfill.js",
+      "lastVersion": "1.0.0.7",
+      "reason": "Hyphen refused by CRM 8.2 (0x8004F117, #9). Never reuse this id or name."
     }
   ]
 }

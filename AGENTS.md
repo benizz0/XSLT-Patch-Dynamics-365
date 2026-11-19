@@ -45,7 +45,7 @@ Il doit afficher `AUTOTEST PASS`. Si aucun navigateur n'est disponible, lancer a
     diagnostic, API publique.
 - `src/polyfill/prelude.js` + `postlude.js` : wrapper autour de
   `vendor/xslt_polyfill/dist/xslt-wasm.js` + `src/xslt-polyfill-src.js`. Résultat :
-  `bnz_/xsltpatch/xslt-polyfill.js`.
+  `bnz_/xsltpatch/xsltpolyfill.js`.
 - `solution/solution.config.json` : source de vérité (version, éditeur, langues, cibles,
   web resources).
 - `solution/templates/*.xml`, `solution/ribbon/RibbonDiffXml.xml` : jetons `{{NOM}}`
@@ -67,6 +67,10 @@ Il doit afficher `AUTOTEST PASS`. Si aucun navigateur n'est disponible, lancer a
    présent, ou shim tiers).
 5. **GUID des web resources fixes** (`solution.config.json`). Les changer crée des doublons
    ou des conflits à l'import. Une nouvelle web resource reçoit un nouveau GUID, une seule fois.
+   Un nom de web resource ne change pas sous le même GUID : renommer, c'est créer une nouvelle
+   web resource et inscrire l'ancienne (GUID + nom) dans `retiredWebResources`, que le build
+   interdit de réutiliser. Les noms se limitent à lettres, chiffres, `_`, `.` et `/` simples :
+   CRM 8.2 refuse le reste à l'import (`0x8004F117`, le tiret compris). Le build le vérifie.
 6. **Noms de schéma préfixés `bnz`** (éditeur `Benizz0`, préfixe d'options `75934`).
    Ids ribbon : `bnz.XsltPatch.*`.
 7. **Compatibilité 8.2** : pas d'élément XML 9.x dans la cible 8.2 (voir
