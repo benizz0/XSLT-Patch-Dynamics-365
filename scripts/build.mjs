@@ -173,6 +173,26 @@ function checkXml(label, xml) {
   assert(stack.length === 0, `${label}: unclosed <${stack.pop()}>`);
 }
 
+// Regression guard for #7: the customizations.xml root must match what the target's XSD
+// accepts, and nodes stripped for the target must really be gone.
+function checkCustomizationsRoot(targetKey, target, xml) {
+  const root = /<ImportExportXml\b[^>]*>/.exec(xml);
+  assert(root, `${targetKey} customizations.xml: no <ImportExportXml> root`);
+  const attrs = new Set([...root[0].matchAll(/\s([\w:]+)="/g)].map((m) => m[1]));
+  const orgAttrs = ['OrganizationVersion', 'OrganizationSchemaType'];
+  for (const a of orgAttrs) {
+    assert(
+      attrs.has(a) === target.customizationsOrganizationAttributes,
+      `${targetKey} customizations.xml: root attribute ${a} ${attrs.has(a) ? 'present' : 'missing'}`
+    );
+  }
+  const allowed = new Set(['xmlns:xsi', ...orgAttrs]);
+  for (const a of attrs) assert(allowed.has(a), `${targetKey} customizations.xml: unexpected root attribute ${a}`);
+  for (const node of target.stripCustomizationNodes || []) {
+    assert(!new RegExp(`<${node}[\\s/>]`).test(xml), `${targetKey} customizations.xml: <${node}> not stripped`);
+  }
+}
+
 function buildSolution(cfg, targetKey, version, webResourceContents, managed) {
   const target = cfg.targets[targetKey];
   assert(target, `Unknown target ${targetKey} (see solution/solution.config.json "targets")`);
@@ -188,14 +208,22 @@ function buildSolution(cfg, targetKey, version, webResourceContents, managed) {
     BASE_LANGUAGE: String(cfg.baseLanguage)
   };
 
+  // CRM 8.2 XSD does not declare OrganizationVersion / OrganizationSchemaType on the
+  // customizations.xml root (import fails with 0x8004801A, see #7). 9.x exports carry them.
+  const orgAttrs = target.customizationsOrganizationAttributes;
+  assert(typeof orgAttrs === 'boolean', `Target ${targetKey}: "customizationsOrganizationAttributes" must be true or false`);
   let customizations = fill(read(P('solution', 'templates', 'Customizations.xml')), {
     ...common,
+    CUSTOMIZATIONS_ROOT_ATTRIBUTES: orgAttrs
+      ? ` OrganizationVersion="${xmlEscape(target.organizationVersion)}" OrganizationSchemaType="Full"`
+      : '',
     WEB_RESOURCES: webResourcesXml(cfg),
     RIBBON_DIFF_XML: ribbon
   }, 'Customizations.xml');
   for (const node of target.stripCustomizationNodes || []) {
     customizations = customizations.replace(new RegExp(`\\s*<${node}\\s*/>|\\s*<${node}>[\\s\\S]*?</${node}>`, 'g'), '');
   }
+  checkCustomizationsRoot(targetKey, target, customizations);
 
   const solution = fill(read(P('solution', 'templates', 'Solution.xml')), {
     ...common,

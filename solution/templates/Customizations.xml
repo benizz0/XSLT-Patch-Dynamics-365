@@ -1,4 +1,4 @@
-<ImportExportXml xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" OrganizationVersion="{{ORG_VERSION}}" OrganizationSchemaType="Full">
+<ImportExportXml xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"{{CUSTOMIZATIONS_ROOT_ATTRIBUTES}}>
   <Entities></Entities>
   <Roles></Roles>
   <Workflows></Workflows>

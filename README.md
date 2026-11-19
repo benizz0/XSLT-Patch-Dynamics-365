@@ -93,7 +93,7 @@ npm run build:dev          # polyfill non minifié (debug)
 
 | Cible | Pour | Différences |
 |-------|------|-------------|
-| `8.2` | CRM 8.2 (et importable en 9.x) | `SolutionPackageVersion="8.2"`, sans `behavior` sur les RootComponents, sans `CustomControls` ni `EntityDataProviders` |
+| `8.2` | CRM 8.2 (et importable en 9.x) | `SolutionPackageVersion="8.2"`, sans `behavior` sur les RootComponents, sans `CustomControls` ni `EntityDataProviders`, sans `OrganizationVersion`/`OrganizationSchemaType` sur la racine de `customizations.xml` |
 | `9.1` | 9.0 et 9.1 on-premise | comme `9.2`, avec `SolutionPackageVersion="9.1"` |
 | `9.2` | 9.0 à 9.2, online et on-premise | métadonnées identiques à l'export de référence |
 

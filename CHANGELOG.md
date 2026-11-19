@@ -7,8 +7,21 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
 ## [Non publié]
 
+## [1.0.0.7] - 2026-11-19
+
+Correctif d'import CRM 8.2 : le package 8.2 de 1.0.0.6 était refusé à la validation XSD.
+Loader, polyfill et ribbon inchangés depuis 1.0.0.5.
+
 ### Corrigé
 
+- **Import refusé sur CRM 8.2 : `OrganizationVersion` non déclaré (#7).** La racine
+  `<ImportExportXml>` de `customizations.xml` portait `OrganizationVersion` et
+  `OrganizationSchemaType` pour toutes les cibles. Le schéma XSD de CRM 8.2 ne les déclare
+  pas : la validation du package échouait (`0x8004801A`) avant tout import. Ces attributs
+  n'apparaissent plus que pour les cibles 9.x (clé de cible
+  `customizationsOrganizationAttributes` dans `solution.config.json`) ; la racine 8.2 est
+  maintenant celle d'un export 8.2 réel. Le build vérifie les attributs de cette racine et
+  l'absence des nœuds retirés pour chaque cible.
 - **Workflow Release : une version refusée n'arrête plus rien (#2).** L'étape « Set
   version » écrivait `echo "result=$(node scripts/release.mjs set-version …)"` : son statut
   était celui d'`echo`, toujours 0. Une version inférieure à l'actuelle, sans tag existant,
