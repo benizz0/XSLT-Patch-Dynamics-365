@@ -14,7 +14,7 @@ compilés en WebAssembly) avec des correctifs propres à Dynamics.
 
 Un bouton « XSLT Patch » est ajouté au ribbon applicatif : grilles, formulaires et
 sous-grilles de toutes les entités, Recherche avancée, pages sans entité (`BasicHomeTab`) et
-barre globale UCI. Le bouton ne sert presque à rien. Ce qui compte, c'est sa **règle Enable**
+barre globale UCI (paquets 9.x seulement : elle n'existe pas en 8.2). Le bouton ne sert presque à rien. Ce qui compte, c'est sa **règle Enable**
 (`CustomRule`) : Dynamics l'évalue chaque fois qu'une barre de commande s'affiche, et c'est
 elle qui lance le patch.
 
@@ -93,7 +93,7 @@ npm run build:dev          # polyfill non minifié (debug)
 
 | Cible | Pour | Différences |
 |-------|------|-------------|
-| `8.2` | CRM 8.2 (et importable en 9.x) | `SolutionPackageVersion="8.2"`, sans `behavior` sur les RootComponents, sans `CustomControls` ni `EntityDataProviders`, sans `OrganizationVersion`/`OrganizationSchemaType` sur la racine de `customizations.xml` |
+| `8.2` | CRM 8.2 (et importable en 9.x) | `SolutionPackageVersion="8.2"`, sans `behavior` sur les RootComponents, sans `CustomControls` ni `EntityDataProviders`, sans `OrganizationVersion`/`OrganizationSchemaType` sur la racine de `customizations.xml`, sans le bouton de la barre globale UCI (`Mscrm.GlobalTab`). Importé en 9.x, il ne couvre donc pas la barre globale UCI : préférer le paquet 9.x |
 | `9.1` | 9.0 et 9.1 on-premise | comme `9.2`, avec `SolutionPackageVersion="9.1"` |
 | `9.2` | 9.0 à 9.2, online et on-premise | métadonnées identiques à l'export de référence |
 

@@ -19,7 +19,9 @@
       "organizationVersion": "8.2.0.0",
       "customizationsOrganizationAttributes": false,
       "rootComponentBehavior": false,
-      "stripCustomizationNodes": ["CustomControls", "EntityDataProviders"]
+      "stripCustomizationNodes": ["CustomControls", "EntityDataProviders"],
+      "excludeRibbonCustomActions": ["bnz.XsltPatch.CustomAction.Global"],
+      "forbiddenRibbonLocations": ["Mscrm.GlobalTab"]
     },
     "9.1": {
       "packageVersion": "9.1",

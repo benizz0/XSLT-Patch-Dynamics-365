@@ -7,6 +7,53 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
 ## [Non publié]
 
+## [1.0.0.9] - 2026-11-19
+
+Correctif d'import CRM 8.2 : le package 8.2 de 1.0.0.8 était refusé à l'étape des rubans de
+l'application. Loader et polyfill inchangés. Paquets 9.1 et 9.2 : même contenu qu'en
+1.0.0.8, seul le numéro de version change.
+
+### Corrigé
+
+- **Import refusé sur CRM 8.2 : dépendance vers `Mscrm.GlobalTab.New.Controls` (#11).**
+  La barre de commande globale (`Mscrm.GlobalTab`) n'existe qu'en UCI. CRM 8.2 ne la connaît
+  pas et refusait `bnz.XsltPatch.CustomAction.Global` (`0x8004F107`). Le paquet 8.2 ne
+  contient plus cette CustomAction. Les cinq autres (grilles, formulaires, sous-grilles,
+  Recherche avancée, `BasicHomeTab`) restent, et ce sont elles qui chargent le loader en
+  client legacy. Le bouton Global ne s'y affichait de toute façon jamais.
+
+### Ajouté
+
+- **Build : emplacements de ribbon par cible.** Deux clés de cible dans
+  `solution.config.json` :
+  - `excludeRibbonCustomActions` : CustomActions retirées du paquet de la cible. Chaque id
+    doit exister dans `RibbonDiffXml.xml`, sinon le build échoue.
+  - `forbiddenRibbonLocations` : racines d'emplacement interdites. Le build échoue si le
+    ribbon généré y fait encore référence (commentaires ignorés).
+
+  La cible 8.2 retire `bnz.XsltPatch.CustomAction.Global` et interdit `Mscrm.GlobalTab`. Le
+  build échoue aussi s'il ne reste plus aucune CustomAction pour charger le loader.
+  `RibbonDiffXml.xml` reste la source unique, le filtrage se fait au build.
+
+### Mise à niveau
+
+- **CRM 8.2** : aucune version publiée ne s'importait jusqu'ici (1.0.0.6 à 1.0.0.8, voir #7,
+  #9, #11). 1.0.0.9 s'installe comme une première installation.
+- **9.x** : utiliser le paquet 9.1 ou 9.2, mise à jour normale depuis 1.0.0.8. Le paquet 8.2
+  s'importe aussi en 9.x, mais sans le bouton de la barre globale UCI : sur UCI, le loader ne
+  se charge alors qu'à l'affichage d'une grille, d'un formulaire ou d'une autre barre de
+  commande couverte.
+
+### Limites restantes
+
+- Correctif vérifié par le build et le banc headless (28 cas), pas encore par un import réel
+  sur une org CRM 8.2. Le journal de #11 ne cite que cette dépendance ; un autre emplacement
+  absent en 8.2 ferait échouer l'import de la même façon et s'ajouterait à
+  `forbiddenRibbonLocations`.
+- Page d'accueil legacy (tableau de bord, `Mscrm.DashboardTab`) toujours sans bouton : le
+  loader s'amorce à la première grille, au premier formulaire ou à la première page
+  `BasicHomeTab` affichée.
+
 ## [1.0.0.8] - 2026-11-19
 
 Correctif d'import CRM 8.2 : le package 1.0.0.7 était refusé à l'import de la web resource
