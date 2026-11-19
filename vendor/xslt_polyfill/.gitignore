@@ -1,0 +1,9 @@
+# DYN-000: upstream ignores dist/. In this local fork, dist/xslt-wasm.js
+# (emscripten glue + embedded wasm, taken from npm xslt-polyfill@1.0.37) is
+# committed so the Dynamics build never needs emscripten.
+dist/*
+!dist/xslt-wasm.js
+build/
+node_modules/
+package-lock.json
+test/generated/

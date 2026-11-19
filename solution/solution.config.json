@@ -1,0 +1,48 @@
+{
+  "uniqueName": "XSLT_Patch",
+  "displayName": "XSLT Patch",
+  "description": "Polyfill XSLT (libxslt/WASM) pour Dynamics CRM 8.2 à 9.2 : injection par règle Enable du ribbon applicatif, y compris dans les fenêtres de rapports SSRS.",
+  "version": "1.0.0.5",
+  "baseLanguage": 1036,
+  "labelLanguages": [1036, 1033],
+  "publisher": {
+    "uniqueName": "Benizz0",
+    "displayName": "Benizz0",
+    "supportingWebsiteUrl": "https://github.com/benizz0",
+    "customizationPrefix": "bnz",
+    "optionValuePrefix": 75934
+  },
+  "defaultTargets": ["8.2", "9.2"],
+  "targets": {
+    "8.2": {
+      "packageVersion": "8.2",
+      "organizationVersion": "8.2.0.0",
+      "rootComponentBehavior": false,
+      "stripCustomizationNodes": ["CustomControls", "EntityDataProviders"]
+    },
+    "9.2": {
+      "packageVersion": "9.2",
+      "organizationVersion": "9.2.26111.138",
+      "rootComponentBehavior": true,
+      "stripCustomizationNodes": []
+    }
+  },
+  "webResources": [
+    {
+      "id": "6fa38043-8529-451f-80a5-3aa7632be39c",
+      "name": "bnz_/xsltpatch/loader.js",
+      "displayName": "XSLT Patch - Loader",
+      "description": "Détection XSLT, injection du polyfill, surveillance iframes/popups (SSRS, recherche avancée), propagation dans les popups. Appelé par la règle Enable du ribbon.",
+      "type": 3,
+      "build": "loader"
+    },
+    {
+      "id": "bd9d1a25-e5eb-434a-8d3d-d12ade8086b2",
+      "name": "bnz_/xsltpatch/xslt-polyfill.js",
+      "displayName": "XSLT Patch - Polyfill (fork xslt_polyfill)",
+      "description": "Fork local de mfreed7/xslt_polyfill avec correctifs Dynamics. Chargé à la demande par le loader.",
+      "type": 3,
+      "build": "polyfill"
+    }
+  ]
+}

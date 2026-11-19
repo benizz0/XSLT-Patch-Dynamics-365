@@ -1,0 +1,7 @@
+/* Stands in for Dynamics /_static/css/1033/cui.css. The 1036 copy is missing
+   on purpose (404), as on Dynamics online 9.2. */
+.ms-cui-hidden {
+  position: absolute;
+  top: -2000px;
+  left: 0;
+}

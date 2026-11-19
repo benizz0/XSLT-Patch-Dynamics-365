@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<report name="Comptes">
+  <row id="1" name="Contoso" revenue="1200" />
+  <row id="2" name="Fabrikam" revenue="800" />
+  <row id="3" name="Éléonore &amp; fils" revenue="430" />
+</report>

@@ -1,0 +1,1 @@
+})(bnz.XsltPatch, window);

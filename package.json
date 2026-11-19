@@ -1,0 +1,25 @@
+{
+  "name": "xslt-dynamics-patch",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Solution Dynamics CRM 8.2-9.2 qui injecte un polyfill XSLT (fork de mfreed7/xslt_polyfill) via une règle Enable du ribbon applicatif.",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "build:82": "node scripts/build.mjs --target 8.2",
+    "build:92": "node scripts/build.mjs --target 9.2",
+    "build:dev": "node scripts/build.mjs --no-minify",
+    "check": "node scripts/build.mjs --check",
+    "serve": "node scripts/serve.mjs",
+    "test": "node scripts/build.mjs --check && node scripts/autotest.mjs",
+    "vendor:status": "node scripts/vendor-status.mjs --latest",
+    "clean": "node scripts/clean.mjs"
+  },
+  "devDependencies": {
+    "terser": "5.51.2"
+  },
+  "license": "BSD-3-Clause"
+}

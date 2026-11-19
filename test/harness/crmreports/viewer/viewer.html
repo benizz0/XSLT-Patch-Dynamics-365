@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="/sim.js"></script>
+  <script src="/legacy-code.js"></script>
+  <title>Viewer SSRS simulé</title>
+</head>
+<body>
+  <p>Popup type rapport SSRS (URL /crmreports/viewer/) : polyfill injecté d'office.</p>
+  <pre id="out"></pre>
+  <script>
+    // Like the report viewer: transforms once the page is loaded. Retries
+    // because the opener injects the polyfill asynchronously.
+    window.__viewerResult = null;
+    window.addEventListener('load', function () {
+      var tries = 0;
+      (function attempt() {
+        try {
+          window.__viewerResult = harnessRunTransform('SSRS');
+        } catch (e) {
+          if (++tries < 100) {
+            setTimeout(attempt, 100);
+          } else {
+            window.__viewerResult = 'ERROR: ' + e.message;
+          }
+        }
+      })();
+    });
+  </script>
+</body>
+</html>

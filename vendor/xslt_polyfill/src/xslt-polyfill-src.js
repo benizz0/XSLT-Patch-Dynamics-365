@@ -1,0 +1,1545 @@
+// Copyright (c) 2025, Mason Freed
+// All rights reserved.
+//
+// This source code is licensed under the BSD-style license found in the
+// LICENSE file in the root directory of this source tree.
+
+// This is a polyfill for the XSLTProcessor API.
+// See: https://developer.mozilla.org/en-US/docs/Web/API/XSLTProcessor
+
+// The actual XSLT processing is performed by the xslt-processor package:
+//   https://github.com/DesignLiquido/xslt-processor/tree/main
+// Please see its copyright terms in src/xslt-processor/LICENSE.
+
+(function () {
+  // Named elements shadow properties: `<img name="body">` on an HTML document,
+  // or `<input name="getAttribute">` in a `<form>` (which also shadows
+  // built-in members). So that content from the page or from a transform's
+  // output can't break the polyfill, DOM members are looked up on the interface
+  // prototypes once, and `callOn()`/`getOn()`/`setOn()` use those instead of
+  // property access wherever the receiver can hold such content.
+  //
+  // Members are looked up from the prototype for the node's `nodeType` (e.g.
+  // `Element.prototype` for elements), so members of more specific interfaces
+  // aren't found: `getOn(el, 'style')` throws, since `style` is on
+  // `HTMLElement.prototype`. For those, use plain property access when the
+  // receiver can't be a `<form>` (e.g. an element the polyfill created), or
+  // capture the member separately, like `templateContentOf()`.
+  const bindCall = (fn) => Function.prototype.call.bind(fn);
+  const nodeTypeOf = bindCall(Object.getOwnPropertyDescriptor(Node.prototype, 'nodeType').get);
+  const interfacePrototypes = {
+    1: Element.prototype,
+    3: CharacterData.prototype,
+    4: CharacterData.prototype,
+    7: CharacterData.prototype,
+    8: CharacterData.prototype,
+    9: Document.prototype,
+    10: DocumentType.prototype,
+    11: DocumentFragment.prototype,
+  };
+  const memberCache = new Map();
+  function findMember(node, name) {
+    const type = nodeTypeOf(node);
+    const key = `${type}:${name}`;
+    let descriptor = memberCache.get(key);
+    if (!descriptor) {
+      for (let proto = interfacePrototypes[type]; proto && !descriptor; proto = Object.getPrototypeOf(proto)) {
+        descriptor = Object.getOwnPropertyDescriptor(proto, name);
+      }
+      if (!descriptor) {
+        throw new Error(`XSLT polyfill: no ${name} on node type ${type}`);
+      }
+      memberCache.set(key, descriptor);
+    }
+    return descriptor;
+  }
+  const callOn = (node, name, ...args) => Reflect.apply(findMember(node, name).value, node, args);
+  const getOn = (node, name) => Reflect.apply(findMember(node, name).get, node, []);
+  const setOn = (node, name, value) => Reflect.apply(findMember(node, name).set, node, [value]);
+  const templateContentOf = bindCall(Object.getOwnPropertyDescriptor(HTMLTemplateElement.prototype, 'content').get);
+  const originalInnerHTML = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
+  // Scripts in the transformed output run before the polyfill dispatches its
+  // synthetic `DOMContentLoaded` and `load` events, and can replace the global
+  // `Event` (MooTools 1.2 does, with `var Event = ...`), so capture it here.
+  const OriginalEvent = Event;
+  const dispatchEventOn = bindCall(EventTarget.prototype.dispatchEvent);
+
+  // True if `window[name]` is set by the page. Named elements (`<img name>`,
+  // `<iframe name>`, `<div id>`, etc.) also make `name in window` true, but they
+  // come from the named properties object on `window`'s prototype chain, while
+  // the page's globals are own properties of `window`.
+  function hasWindowOption(name) {
+    return Object.hasOwn(window, name);
+  }
+
+  // Feature detection
+  if (hasWindowOption('xsltPolyfillInstalled') && window.xsltPolyfillInstalled) {
+    return;
+  }
+  // Code that wraps the polyfill in a function (e.g. a browser extension) can
+  // declare an `xsltPolyfillOptions` object in the enclosing scope, instead of
+  // setting the `window.*` flags below. Then, if the polyfill isn't needed, it
+  // returns without touching the page. If there's no such declaration, a
+  // named element can still resolve as `xsltPolyfillOptions` through `window`,
+  // so ignore it unless it's the page's own global.
+  const embedderOptions =
+    typeof xsltPolyfillOptions === 'object' &&
+    xsltPolyfillOptions !== null &&
+    (xsltPolyfillOptions !== window.xsltPolyfillOptions || hasWindowOption('xsltPolyfillOptions'))
+      ? xsltPolyfillOptions
+      : null;
+  if (embedderOptions?.xsltUsePolyfillOnlyIfNeeded && isNativeXsltSupported()) {
+    return;
+  }
+  const options = embedderOptions || window;
+  function hasOption(name) {
+    return embedderOptions ? name in embedderOptions : hasWindowOption(name);
+  }
+  window.xsltPolyfillInstalled = true;
+  const xsltPolyfillVersion = '1.0.37';
+  window.xsltPolyfillVersion = xsltPolyfillVersion;
+  let polyfillReadyPromiseResolve;
+  let polyfillReadyPromiseReject;
+  const polyfillReadyPromise = new Promise((resolve, reject) => {
+    polyfillReadyPromiseResolve = resolve;
+    polyfillReadyPromiseReject = reject;
+  });
+  // By default, the polyfill installs itself even if the browser has working
+  // native XSLT support. Set this flag to true to only install the polyfill
+  // when native support is missing.
+  const defaultOnlyIfNeeded =
+    // Backwards compat: `xsltUsePolyfillAlways = false` used to mean "use
+    // native XSLT if it's available".
+    hasOption('xsltUsePolyfillAlways') && options.xsltUsePolyfillAlways === false;
+  options.xsltUsePolyfillOnlyIfNeeded =
+    hasOption('xsltUsePolyfillOnlyIfNeeded') ? options.xsltUsePolyfillOnlyIfNeeded : defaultOnlyIfNeeded;
+  options.xsltDontAutoloadXmlDocs = hasOption('xsltDontAutoloadXmlDocs') ? options.xsltDontAutoloadXmlDocs : false;
+  let xsltPolyfillHideRequestId = 0;
+  let currentSpinnerText = null;
+
+  if (hasWindowOption('xsltPolyfillSpinner')) {
+    currentSpinnerText = window.xsltPolyfillSpinner;
+    delete window.xsltPolyfillSpinner;
+  }
+
+  function setPolyfillSpinner(text) {
+    currentSpinnerText = text;
+    if (!getOn(document, 'body')) {
+      if (text) {
+        xsltPolyfillHideRequestId = requestAnimationFrame(() => setPolyfillSpinner(text));
+      } else {
+        cancelAnimationFrame(xsltPolyfillHideRequestId);
+      }
+      return;
+    }
+
+    cancelAnimationFrame(xsltPolyfillHideRequestId);
+
+    let overlay = callOn(document, 'getElementById', 'xslt-polyfill-spinner');
+    if (text) {
+      if (!overlay) {
+        const xmlns = 'http://www.w3.org/1999/xhtml';
+        overlay = callOn(document, 'createElementNS', xmlns, 'div');
+        overlay.id = 'xslt-polyfill-spinner';
+
+        const span = callOn(document, 'createElementNS', xmlns, 'span');
+        span.textContent = text;
+        overlay.appendChild(span);
+
+        const style = callOn(document, 'createElementNS', xmlns, 'style');
+        style.textContent = `
+          #xslt-polyfill-spinner {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            padding: 16px;
+            border-radius: 15px;
+            z-index: 1;
+            font-family: sans-serif;
+            visibility: visible;
+          }
+          #xslt-polyfill-spinner::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            border-radius: inherit;
+            background: #3b82f6;
+            z-index: -1;
+            animation: ripple 1.5s infinite ease-out;
+          }
+          @keyframes ripple {
+            to {
+              transform: scale(1.15, 1.4);
+              opacity: 0;
+            }
+          }`;
+        overlay.appendChild(style);
+        callOn(getOn(document, 'body'), 'appendChild', overlay);
+      } else {
+        const span = callOn(overlay, 'querySelector', 'span');
+        if (span) setOn(span, 'textContent', text);
+      }
+      overlay.style.display = 'block';
+      getOn(document, 'body').style.visibility = 'hidden';
+    } else {
+      if (overlay) {
+        callOn(overlay, 'remove');
+      }
+      if (getOn(document, 'body')) {
+        getOn(document, 'body').style.removeProperty('visibility');
+      }
+    }
+  }
+
+  Object.defineProperty(window, 'xsltPolyfillSpinner', {
+    get() {
+      return currentSpinnerText;
+    },
+    set(val) {
+      setPolyfillSpinner(val);
+    },
+    configurable: true,
+  });
+
+  if (currentSpinnerText) {
+    setPolyfillSpinner(currentSpinnerText);
+  }
+
+  // Whether the current document is an XML document (including XHTML). Don't
+  // use `document instanceof XMLDocument`: in Gecko, application/xhtml+xml
+  // documents are HTMLDocuments.
+  const type = getOn(document, 'contentType');
+  const isXml = type === "text/xml" || type === "application/xml" || type.endsWith("+xml");
+
+  function isNativeXsltSupported() {
+    let nativeSupported = hasWindowOption('XSLTProcessor') && window.XSLTProcessor.toString().includes('native code');
+    if (nativeSupported) {
+      try {
+        new XSLTProcessor();
+      } catch {
+        nativeSupported = false;
+      }
+    }
+    return nativeSupported;
+  }
+  let nativeSupported = isNativeXsltSupported();
+  const polyfillWillLoad = !nativeSupported || !options.xsltUsePolyfillOnlyIfNeeded;
+  if (polyfillWillLoad) {
+    // The polyfill
+    const promiseName = 'xsltPolyfillReady';
+
+    // The Wasm module is loaded on first use (see loadWasmModule()), so that
+    // pages that don't use XSLT don't pay for it.
+    let WasmModule = null;
+    let wasm_transform = null;
+    let wasm_transform_async = null;
+    let wasm_free = null;
+    let wasmLoadStarted = false;
+    // Imported stylesheets preprocessed by compileImports(), keyed by URL. Used
+    // by fetch_and_load_document (in transform.c) instead of fetching them.
+    const preprocessedStylesheets = new Map();
+
+    function initializeWasmModule(Module) {
+      if (WasmModule) {
+        return;
+      }
+      WasmModule = Module;
+      const args = ['transform', 'number', ['number', 'number', 'number', 'number', 'number', 'number', 'number']];
+      wasm_transform = Module.cwrap(...args, { async: false });
+      wasm_transform_async = Module.cwrap(...args, { async: true });
+      wasm_free = Module._free;
+
+      // Tell people we're ready.
+      polyfillReadyPromiseResolve();
+    }
+
+    // Starts loading the Wasm module, if that hasn't started yet. In the
+    // default build, the Wasm is embedded and compiled synchronously, so the
+    // module is ready when this returns, and the synchronous XSLTProcessor
+    // methods can load it on first use. Otherwise (e.g. the nowasm build), it's
+    // ready when the xsltPolyfillReady() promise resolves.
+    function loadWasmModule() {
+      if (wasmLoadStarted) {
+        return;
+      }
+      wasmLoadStarted = true;
+      // Emscripten builds the module on the object passed to the factory.
+      // fetch_and_load_document (in transform.c) uses decodeXmlBytes and
+      // preprocessedStylesheets from it.
+      const moduleArg = { decodeXmlBytes, preprocessedStylesheets };
+      createXSLTTransformModule(moduleArg)
+        .then(initializeWasmModule)
+        .catch((err) => {
+          console.error('Error loading XSLT Wasm module:', err);
+          polyfillReadyPromiseReject(err);
+        });
+      if (moduleArg.calledRun) {
+        initializeWasmModule(moduleArg);
+      }
+    }
+
+    function isSameOriginAllowedUrl(url) {
+      try {
+        const resolved = new URL(url, window.location.href);
+        if (resolved.protocol === 'data:') {
+          return false;
+        }
+        if (window.location.origin === 'null') {
+          return window.location.protocol === 'file:' && resolved.protocol === 'file:';
+        }
+        return resolved.origin === window.location.origin;
+      } catch {
+        return false;
+      }
+    }
+
+    // Decodes the bytes of a fetched XML document (a source document, or a
+    // stylesheet or document loaded by `<xsl:import>`, `<xsl:include>`, or
+    // `document()`) to a string, like the browser would: with the encoding from
+    // the BOM, else the Content-Type charset, else the XML declaration, else
+    // UTF-8. libxml2 is only ever given UTF-8, so this is what makes other
+    // encodings work. Like native XSLT, this fails (throws) on invalid bytes.
+    function decodeXmlBytes(bytes, contentType) {
+      let bomEncoding = null;
+      if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+        bomEncoding = 'utf-8';
+      } else if (bytes[0] === 0xfe && bytes[1] === 0xff) {
+        bomEncoding = 'utf-16be';
+      } else if (bytes[0] === 0xff && bytes[1] === 0xfe) {
+        bomEncoding = 'utf-16le';
+      }
+      const charset = contentType?.match(/;\s*charset\s*=\s*"?([^";\s]+)/i)?.[1];
+      // The XML declaration is ASCII, so any ASCII-compatible decoding finds it.
+      const prolog = new TextDecoder('windows-1252').decode(bytes.subarray(0, 1024));
+      const declaredEncoding = prolog.match(/^<\?xml\s[^>]*?encoding\s*=\s*(["'])([^"']+)\1/)?.[2];
+      for (const label of [bomEncoding, charset, declaredEncoding, 'utf-8']) {
+        if (!label) continue;
+        let decoder;
+        try {
+          decoder = new TextDecoder(label, { fatal: true });
+        } catch {
+          continue; // Not an encoding the browser supports.
+        }
+        return decoder.decode(bytes);
+      }
+    }
+
+    async function loadDoc(fn, cache) {
+      if (!isSameOriginAllowedUrl(fn)) {
+        return null;
+      }
+      let res;
+      try {
+        res = await fetch(fn, { mode: 'same-origin', cache: cache });
+      } catch {
+        return null;
+      }
+      if (!res.ok || (res.url && !isSameOriginAllowedUrl(res.url))) {
+        return null;
+      }
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      let xmltext;
+      try {
+        xmltext = decodeXmlBytes(bytes, res.headers.get('Content-Type'));
+      } catch {
+        return null;
+      }
+      const doc = new DOMParser().parseFromString(xmltext, 'text/xml');
+      if (doc.querySelector('parsererror') || doc.documentElement?.localName === 'parsererror') {
+        return null;
+      }
+      return doc;
+    }
+
+    // Recursively preprocesses the <xsl:import>s within an XSLT document, so that
+    // libxslt can then load them itself (via fetch_and_load_document in
+    // transform.c), which preserves import precedence. Imports that can't be
+    // loaded or parsed are removed, rather than failing the transformation, and
+    // the root element attributes of each imported stylesheet are merged into
+    // the importing one. Each preprocessed imported stylesheet is stored in
+    // `preprocessed` (a Map from URL to serialized stylesheet), for
+    // fetch_and_load_document to use instead of fetching it again. This function
+    // is destructive and will modify the provided `xsltsheet` document. `relurl`
+    // is the base URL for resolving relative import paths.
+    async function compileImports(xsltsheet, relurl, preprocessed) {
+      const xslns = 'http://www.w3.org/1999/XSL/Transform';
+      const imports = Array.from(xsltsheet.getElementsByTagNameNS(xslns, 'import'));
+      if (!imports.length) {
+        return xsltsheet;
+      }
+      if (!relurl) {
+        relurl = window.location.href;
+      }
+
+      // Fetch all imports at this level in parallel.
+      const importDocs = await Promise.all(
+        imports.map(async (importElement) => {
+          const href = new URL(importElement.getAttribute('href'), relurl).href;
+          const importedDoc = await loadDoc(href, 'default');
+          return { importElement, importedDoc, href };
+        }),
+      );
+
+      for (const { importElement, importedDoc, href } of importDocs) {
+        if (
+          !importedDoc ||
+          !importedDoc.documentElement ||
+          importedDoc.querySelector('parsererror') ||
+          importedDoc.documentElement.localName === 'parsererror'
+        ) {
+          importElement.remove();
+          continue;
+        }
+
+        const importedDocRoot = importedDoc.documentElement;
+        const xsltDocRoot = xsltsheet.documentElement;
+        const attrs = importedDocRoot.getAttributeNames();
+        for (const attr of attrs) {
+          if (!xsltDocRoot.getAttribute(attr)) {
+            xsltDocRoot.setAttribute(attr, importedDocRoot.getAttribute(attr));
+          }
+        }
+
+        // Recursively preprocess imports within the imported document.
+        await compileImports(importedDoc, href, preprocessed);
+        importElement.setAttribute('href', href);
+        preprocessed.set(href, new XMLSerializer().serializeToString(importedDoc));
+      }
+      return xsltsheet;
+    }
+
+    // DYN-006 begin: resolve <xsl:include> / <xsl:import> synchronously.
+    // Dynamics calls the synchronous XSLTProcessor methods with stylesheets
+    // that include or import others. The Wasm loader (fetch_and_load_document)
+    // always suspends through Asyncify, so those calls throw. Native (Blink)
+    // loaded them synchronously. Here they are fetched with synchronous
+    // same-origin XHR and inlined before the stylesheet reaches libxslt:
+    //  - xsl:include is replaced in place by the top-level elements it contains;
+    //  - xsl:import content is placed before the importing stylesheet's own
+    //    elements, in import order (later wins, as libxslt keeps the last of
+    //    equal-priority templates), minus the named templates and top-level
+    //    variables/params the importing stylesheet defines itself.
+    // xsl:apply-imports has nothing left to apply. document() is not covered.
+    const DYN_XSLNS = 'http://www.w3.org/1999/XSL/Transform';
+    const DYN_XMLNSNS = 'http://www.w3.org/2000/xmlns/';
+    window.__bnzXsltInlineReport = window.__bnzXsltInlineReport || { inlined: [], failed: [] };
+
+    function dynLoadXmlSync(url) {
+      if (!isSameOriginAllowedUrl(url)) {
+        return null;
+      }
+      try {
+        const xhr = new XMLHttpRequest();
+        xhr.open('GET', url, false);
+        // Synchronous XHR can't use responseType: read raw bytes this way.
+        xhr.overrideMimeType('text/plain; charset=x-user-defined');
+        xhr.send(null);
+        if (xhr.status < 200 || xhr.status >= 300) {
+          return null;
+        }
+        if (xhr.responseURL && !isSameOriginAllowedUrl(xhr.responseURL)) {
+          return null;
+        }
+        const raw = xhr.responseText;
+        const bytes = new Uint8Array(raw.length);
+        for (let i = 0; i < raw.length; i++) {
+          bytes[i] = raw.charCodeAt(i) & 0xff;
+        }
+        const text = decodeXmlBytes(bytes, xhr.getResponseHeader('Content-Type'));
+        const doc = new DOMParser().parseFromString(text, 'text/xml');
+        const root = doc.documentElement;
+        if (!root || root.localName === 'parsererror' || doc.getElementsByTagName('parsererror').length) {
+          return null;
+        }
+        return doc;
+      } catch {
+        return null;
+      }
+    }
+
+    // Namespace declarations of the included root must stay in scope for the
+    // QNames used inside attribute values (select="math:max(...)").
+    function dynAdoptNamespaces(fromRoot, toRoot, el) {
+      for (const attr of Array.from(fromRoot.attributes)) {
+        if (attr.namespaceURI !== DYN_XMLNSNS || attr.prefix !== 'xmlns') {
+          continue;
+        }
+        const existing = toRoot.lookupNamespaceURI(attr.localName);
+        if (existing === null) {
+          toRoot.setAttributeNS(DYN_XMLNSNS, 'xmlns:' + attr.localName, attr.value);
+        } else if (existing !== attr.value) {
+          el.setAttributeNS(DYN_XMLNSNS, 'xmlns:' + attr.localName, attr.value);
+        }
+      }
+    }
+
+    function dynMergePrefixList(fromRoot, toRoot, name) {
+      const extra = (fromRoot.getAttribute(name) || '').split(/\s+/).filter(Boolean);
+      if (!extra.length) {
+        return;
+      }
+      const current = (toRoot.getAttribute(name) || '').split(/\s+/).filter(Boolean);
+      for (const p of extra) {
+        if (!current.includes(p)) {
+          current.push(p);
+        }
+      }
+      toRoot.setAttribute(name, current.join(' '));
+    }
+
+    // Key of a top-level element that must be unique (named template,
+    // global variable/param), or null.
+    function dynUniqueKey(el) {
+      if (el.nodeType !== 1 || el.namespaceURI !== DYN_XSLNS) {
+        return null;
+      }
+      const name = el.getAttribute('name');
+      if (!name) {
+        return null;
+      }
+      if (el.localName === 'template') {
+        return 'template:' + name;
+      }
+      if (el.localName === 'variable' || el.localName === 'param') {
+        return 'var:' + name;
+      }
+      return null;
+    }
+
+    function dynInlineDoc(doc, baseUrl, seen, depth, report) {
+      const root = doc.documentElement;
+      if (!root || depth > 16) {
+        return;
+      }
+      const children = Array.from(root.children);
+      const isRef = (el) => el.namespaceURI === DYN_XSLNS && (el.localName === 'include' || el.localName === 'import');
+      if (!children.some(isRef)) {
+        return;
+      }
+      // Imported content goes before the first own (non-import) element.
+      const ownFirst = children.find((el) => !(el.namespaceURI === DYN_XSLNS && el.localName === 'import')) || null;
+      const ownKeys = new Set(children.map(dynUniqueKey).filter(Boolean));
+      const importedByKey = new Map();
+      for (const el of children) {
+        if (!isRef(el)) {
+          continue;
+        }
+        const isImport = el.localName === 'import';
+        let href = null;
+        try {
+          href = new URL(el.getAttribute('href'), baseUrl).href;
+        } catch {
+          href = null;
+        }
+        const sub = href && !seen.has(href) ? dynLoadXmlSync(href) : null;
+        if (!sub) {
+          if (href && !seen.has(href)) {
+            report.failed.push(href);
+          }
+          el.remove();
+          continue;
+        }
+        seen.add(href);
+        report.inlined.push(href);
+        dynInlineDoc(sub, href, seen, depth + 1, report);
+        const subRoot = sub.documentElement;
+        dynMergePrefixList(subRoot, root, 'exclude-result-prefixes');
+        dynMergePrefixList(subRoot, root, 'extension-element-prefixes');
+        const anchor = isImport ? ownFirst : el;
+        for (const child of Array.from(subRoot.children)) {
+          const key = dynUniqueKey(child);
+          if (isImport && key) {
+            if (ownKeys.has(key)) {
+              continue; // the importing stylesheet wins
+            }
+            if (importedByKey.has(key)) {
+              importedByKey.get(key).remove(); // a later import wins
+            }
+          }
+          const copy = doc.importNode(child, true);
+          dynAdoptNamespaces(subRoot, root, copy);
+          root.insertBefore(copy, anchor);
+          if (isImport && key) {
+            importedByKey.set(key, copy);
+          }
+        }
+        el.remove();
+      }
+    }
+
+    function inlineStylesheetIncludesSync(stylesheetText, baseUrl) {
+      if (!/\b(include|import)\b/.test(stylesheetText)) {
+        return stylesheetText;
+      }
+      try {
+        const doc = new DOMParser().parseFromString(stylesheetText, 'application/xml');
+        if (!doc.documentElement || doc.getElementsByTagName('parsererror').length) {
+          return stylesheetText;
+        }
+        const report = window.__bnzXsltInlineReport;
+        const before = report.inlined.length + report.failed.length;
+        dynInlineDoc(doc, baseUrl, new Set(), 0, report);
+        if (report.inlined.length + report.failed.length === before) {
+          return stylesheetText;
+        }
+        if (report.inlined.length > 200) report.inlined.splice(0, report.inlined.length - 200);
+        if (report.failed.length > 200) report.failed.splice(0, report.failed.length - 200);
+        return new XMLSerializer().serializeToString(doc);
+      } catch (e) {
+        console.warn('[bnz.XsltPatch] include inlining failed, using the stylesheet as is:', e);
+        return stylesheetText;
+      }
+    }
+    // DYN-006 end
+    const textEncoder = new TextEncoder();
+    const textDecoder = new TextDecoder();
+
+    function transformXmlWithXslt(xmlContent, xsltContent, parameters, xsltUrl, allowAsync, buildPlainText) {
+      loadWasmModule();
+      if (!wasm_transform || !WasmModule) {
+        throw new Error(
+          `Polyfill XSLT Wasm module not yet loaded. Please wait for the ${promiseName} promise to resolve.`,
+        );
+      }
+
+      let xmlPtr = 0;
+      let xsltPtr = 0;
+      let paramsPtr = 0;
+      let xsltUrlPtr = 0;
+      let mimeTypePtr = 0;
+      const paramStringPtrs = [];
+
+      // Helper to write byte arrays to Wasm memory manually.
+      const writeBytesToHeap = (bytes) => {
+        const ptr = WasmModule._malloc(bytes.length + 1);
+        if (!ptr) throw new Error(`Wasm malloc failed for bytes of length ${bytes.length}`);
+        const heapu8 = new Uint8Array(WasmModule.wasmMemory.buffer);
+        heapu8.set(bytes, ptr);
+        heapu8[ptr + bytes.length] = 0; // Null terminator
+        return ptr;
+      };
+
+      // Helper to write JS strings to Wasm memory manually.
+      const writeStringToHeap = (str) => {
+        if (str === null || str === undefined || typeof str !== 'string') {
+          throw new Error(`Cannot write non-string value to Wasm heap: ${str}`);
+        }
+        const encodedStr = textEncoder.encode(str);
+        const ptr = WasmModule._malloc(encodedStr.length + 1);
+        if (!ptr) throw new Error(`Wasm malloc failed for string: ${str.substring(0, 50)}...`);
+        const heapu8 = new Uint8Array(WasmModule.wasmMemory.buffer);
+        heapu8.set(encodedStr, ptr);
+        heapu8[ptr + encodedStr.length] = 0; // Null terminator
+        return ptr;
+      };
+
+      // Helper to read a null-terminated UTF-8 string from Wasm memory.
+      const readStringFromHeap = (ptr) => {
+        const heapu8 = new Uint8Array(WasmModule.wasmMemory.buffer);
+        let end = ptr;
+        while (heapu8[end] !== 0) {
+          end++;
+        }
+        return textDecoder.decode(heapu8.subarray(ptr, end));
+      };
+
+      const cleanup = () => {
+        // Clean up all allocated memory to prevent memory leaks in the Wasm heap.
+        if (xmlPtr) wasm_free(xmlPtr);
+        if (xsltPtr) wasm_free(xsltPtr);
+        if (xsltUrlPtr) wasm_free(xsltUrlPtr);
+        if (mimeTypePtr) wasm_free(mimeTypePtr);
+        paramStringPtrs.forEach((ptr) => wasm_free(ptr));
+        if (paramsPtr) wasm_free(paramsPtr);
+      };
+
+      try {
+        // 1. Prepare parameters from the Map into a flat array.
+        // Values are passed as raw strings; xsltQuoteUserParams on the C side
+        // handles quoting so that any character is treated as a literal string.
+        const paramsArray = [];
+        if (parameters) {
+          for (const [key, value] of parameters.entries()) {
+            paramsArray.push(key);
+            paramsArray.push(String(value));
+          }
+        }
+
+        // 2. Allocate memory for parameter strings and the pointer array in the Wasm heap.
+        if (paramsArray.length > 0) {
+          // Allocate memory for the array of pointers (char**), plus a NULL terminator.
+          const ptrSize = 4; // Pointers are 32-bit in wasm32
+          paramsPtr = WasmModule._malloc((paramsArray.length + 1) * ptrSize);
+          if (!paramsPtr) throw new Error('Wasm malloc failed for params pointer array.');
+
+          // Allocate memory for each string, write it to the heap, and store its pointer.
+          paramsArray.forEach((str, i) => {
+            const strPtr = writeStringToHeap(str);
+            paramStringPtrs.push(strPtr); // Track for later cleanup.
+            // Write the pointer to the string into the paramsPtr array.
+            new DataView(WasmModule.wasmMemory.buffer).setUint32(paramsPtr + i * ptrSize, strPtr, true);
+          });
+
+          // Null-terminate the array of pointers.
+          new DataView(WasmModule.wasmMemory.buffer).setUint32(paramsPtr + paramsArray.length * ptrSize, 0, true);
+        }
+
+        // 3. Allocate memory for XML and XSLT content.
+        const xmlBytes = xmlContent instanceof Uint8Array ? xmlContent : textEncoder.encode(xmlContent);
+        const xsltBytes = xsltContent instanceof Uint8Array ? xsltContent : textEncoder.encode(xsltContent);
+        xmlPtr = writeBytesToHeap(xmlBytes);
+        xsltPtr = writeBytesToHeap(xsltBytes);
+        xsltUrlPtr = writeStringToHeap(xsltUrl);
+
+        // Allocate memory for the output mime type (minimum 32 bytes).
+        mimeTypePtr = WasmModule._malloc(32);
+        if (!mimeTypePtr) throw new Error('Wasm malloc failed for mimeType pointer.');
+        new Uint8Array(WasmModule.wasmMemory.buffer, mimeTypePtr, 32).fill(0);
+
+        // 4. Call the C function with pointers to the data in Wasm memory.
+        const wasm_fn = allowAsync ? wasm_transform_async : wasm_transform;
+        const resultPtr_or_Promise = wasm_fn(
+          xmlPtr,
+          xmlBytes.byteLength,
+          xsltPtr,
+          xsltBytes.byteLength,
+          paramsPtr,
+          xsltUrlPtr,
+          mimeTypePtr,
+        );
+
+        if (!allowAsync && WasmModule.Asyncify && WasmModule.Asyncify.state === 1 /* Suspending */) {
+          throw new Error(
+            "This XSLT transformation contains includes or document() calls. These aren't supported for synchronous XSLTProcessor methods.",
+          );
+        }
+
+        if (!resultPtr_or_Promise) {
+          throw new Error(`XSLT Transformation failed. See console for details.`);
+        }
+
+        const finishProcessing = (resultPtr) => {
+          if (!resultPtr) {
+            throw new Error(`XSLT Transformation failed. See console for details.`);
+          }
+          // 5. Convert the result pointers (char*) back to JS strings.
+          let resultString = readStringFromHeap(resultPtr);
+          let mimeTypeString = readStringFromHeap(mimeTypePtr);
+
+          // 6. Free the result pointer itself, which was allocated by the C code.
+          wasm_free(resultPtr);
+
+          // Workaround for libxslt appending an extra line feed to the result.
+          // See https://source.chromium.org/chromium/chromium/src/+/main:third_party/blink/renderer/core/xml/xslt_processor_libxslt.cc;l=221;drc=d2f52c0dcbbdb54a08ce6ab50f470942240e15b2
+          if (resultString.endsWith('\n')) {
+            resultString = resultString.slice(0, -1);
+          }
+
+          // 7. Handle the plain text case, if needed.
+          if (buildPlainText && mimeTypeString === 'text/plain') {
+            resultString = resultString.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            resultString = `<html xmlns="http://www.w3.org/1999/xhtml">\n<head><title></title></head>\n<body>\n<pre>${resultString}</pre>\n</body>\n</html>`;
+            mimeTypeString = 'application/xml';
+          }
+
+          return {
+            content: resultString,
+            mimeType: mimeTypeString,
+          };
+        };
+
+        if (resultPtr_or_Promise instanceof Promise) {
+          // Return a Promise that resolves to the finished object
+          return resultPtr_or_Promise.then(
+            (resultPtr) => {
+              try {
+                return finishProcessing(resultPtr);
+              } finally {
+                cleanup();
+              }
+            },
+            (err) => {
+              cleanup();
+              throw err;
+            },
+          );
+        }
+        // Not a promise - just return the finished object.
+        const res = finishProcessing(resultPtr_or_Promise);
+        cleanup();
+        return res;
+      } catch (e) {
+        cleanup();
+        throw e;
+      }
+    }
+
+    function isEmptySourceDocument(source) {
+      return source && nodeTypeOf(source) === Node.DOCUMENT_NODE && !getOn(source, 'documentElement');
+    }
+
+    // Event handlers ('on*' attributes) parsed into DOMParser inert documents
+    // do not create event listeners. Remove and re-add them to activate them.
+    function resetEventHandlers(root) {
+      if (!root) return;
+      const type = nodeTypeOf(root);
+      const canQuery = type === Node.ELEMENT_NODE || type === Node.DOCUMENT_NODE || type === Node.DOCUMENT_FRAGMENT_NODE;
+      const elements = canQuery ? Array.from(callOn(root, 'querySelectorAll', '*')) : [];
+      if (type === Node.ELEMENT_NODE) {
+        elements.push(root);
+      }
+      for (let i = 0; i < elements.length; i++) {
+        const el = elements[i];
+        const attrs = callOn(el, 'getAttributeNames');
+        for (let j = 0; j < attrs.length; j++) {
+          const attr = attrs[j];
+          if (attr.toLowerCase().startsWith('on')) {
+            const val = callOn(el, 'getAttribute', attr);
+            callOn(el, 'removeAttribute', attr);
+            callOn(el, 'setAttribute', attr, val);
+          }
+        }
+      }
+    }
+
+    function lowercaseHtmlAttributes(root) {
+      if (!root) return;
+      const elements = callOn(root, 'querySelectorAll', '*');
+      for (let i = 0; i < elements.length; i++) {
+        const el = elements[i];
+        if (getOn(el, 'namespaceURI') === 'http://www.w3.org/1999/xhtml') {
+          const attrs = callOn(el, 'getAttributeNames');
+          for (let j = 0; j < attrs.length; j++) {
+            const attr = attrs[j];
+            const lowerAttr = attr.toLowerCase();
+            if (attr !== lowerAttr) {
+              const val = callOn(el, 'getAttribute', attr);
+              callOn(el, 'removeAttribute', attr);
+              callOn(el, 'setAttribute', lowerAttr, val);
+            }
+          }
+        }
+      }
+    }
+
+    class XSLTProcessor {
+      #stylesheetText = null;
+      #parameters = new Map();
+      #stylesheetBaseUrl = null;
+
+      constructor() {}
+      isPolyfill() {
+        return true;
+      }
+
+      importStylesheet(stylesheet) {
+        this.#stylesheetText = new XMLSerializer().serializeToString(stylesheet);
+        this.#stylesheetBaseUrl = getOn(stylesheet, 'baseURI') || window.location.href;
+        // DYN-006 begin: inline xsl:include / xsl:import synchronously.
+        this.#stylesheetText = inlineStylesheetIncludesSync(this.#stylesheetText, this.#stylesheetBaseUrl);
+        // DYN-006 end
+      }
+
+      // Returns a new document (XML or HTML).
+      transformToDocument(source) {
+        if (!this.#stylesheetText) {
+          throw new Error('XSLTProcessor: Stylesheet not imported.');
+        }
+        if (isEmptySourceDocument(source)) {
+          return null;
+        }
+        const sourceXml = new XMLSerializer().serializeToString(source);
+        const { content, mimeType } = transformXmlWithXslt(
+          sourceXml,
+          this.#stylesheetText,
+          this.#parameters,
+          this.#stylesheetBaseUrl,
+          /*allowAsync*/ false,
+          /*buildPlainText*/ true,
+        );
+        return new DOMParser().parseFromString(content, mimeType);
+      }
+
+      // Returns a fragment. In the case of HTML, head/body are flattened.
+      // For text output, no <pre> is generated.
+      transformToFragment(source, document) {
+        if (!this.#stylesheetText) {
+          throw new Error('XSLTProcessor: Stylesheet not imported.');
+        }
+        if (isEmptySourceDocument(source)) {
+          return null;
+        }
+        const sourceXml = new XMLSerializer().serializeToString(source);
+        const { content, mimeType } = transformXmlWithXslt(
+          sourceXml,
+          this.#stylesheetText,
+          this.#parameters,
+          this.#stylesheetBaseUrl,
+          /*allowAsync*/ false,
+          /*buildPlainText*/ false,
+        );
+        const fragment = callOn(document, 'createDocumentFragment');
+        switch (mimeType) {
+          case 'text/plain':
+            fragment.append(content);
+            return fragment;
+          case 'application/xml': {
+            // It's legal for XML content to contain multiple sibling root
+            // elements in transformToFragment, so wrap the content in one.
+            const fakeRoot = `rootelementforparsing`;
+            // DYN-009 begin: the owner document passed in decides, not the page.
+            // Dynamics passes an XMLDocument (transformToFragment(input, input));
+            // native XSLT then keeps attribute case (optionsXML) and adds no
+            // XHTML namespace.
+            let ownerType = '';
+            try {
+              ownerType = String(getOn(document, 'contentType') || '');
+            } catch (e) {
+              ownerType = '';
+            }
+            const ownerIsXml = ownerType ? ownerType === 'text/xml' || ownerType === 'application/xml' || ownerType.endsWith('+xml') : isXml;
+            const ns = !ownerIsXml ? ` xmlns="http://www.w3.org/1999/xhtml"` : '';
+            const doc = new DOMParser().parseFromString(`<${fakeRoot}${ns}>${content}</${fakeRoot}>`, mimeType);
+            const rootNode = callOn(doc, 'querySelector', fakeRoot);
+            if (!ownerIsXml) {
+              lowercaseHtmlAttributes(rootNode);
+            }
+            // DYN-009 end
+            fragment.append(...getOn(rootNode, 'childNodes'));
+            resetEventHandlers(fragment);
+            return fragment;
+          }
+          case 'text/html': {
+            // The transformToFragment method flattens head/body into a flat list.
+            // Note this comment: https://source.chromium.org/chromium/chromium/src/+/main:third_party/blink/renderer/core/editing/serializers/serialization.cc;l=776;drc=7666bc1983c2a5b98e5dc6fa6c28f8f53c07d06f
+            const doc = new DOMParser().parseFromString(content, mimeType);
+            const firstElement = getOn(doc, 'firstElementChild');
+            const html = firstElement instanceof HTMLHtmlElement ? firstElement : undefined;
+            const head = html && getOn(html, 'firstElementChild');
+            const body = head && getOn(head, 'nextElementSibling');
+            if (head) {
+              fragment.append(...getOn(head, 'childNodes'));
+              callOn(head, 'remove');
+            }
+            if (body) {
+              fragment.append(...getOn(body, 'childNodes'));
+              callOn(body, 'remove');
+            }
+            if (html) {
+              callOn(html, 'remove');
+            }
+            const htmlChildren = Array.from(getOn(doc, 'childNodes')).filter(
+              (node) => nodeTypeOf(node) !== Node.DOCUMENT_TYPE_NODE,
+            );
+            fragment.append(...htmlChildren);
+            resetEventHandlers(fragment);
+            return fragment;
+          }
+          default:
+            throw new Error(`Unknown mime type ${mimeType}`);
+        }
+      }
+
+      setParameter(namespaceURI, localName, value) {
+        // libxslt top-level parameters are not namespaced.
+        this.#parameters.set(localName, value);
+      }
+
+      getParameter(namespaceURI, localName) {
+        return this.#parameters.has(localName) ? this.#parameters.get(localName) : null;
+      }
+
+      removeParameter(namespaceURI, localName) {
+        this.#parameters.delete(localName);
+      }
+
+      clearParameters() {
+        this.#parameters.clear();
+      }
+
+      reset() {
+        this.#stylesheetText = null;
+        this.#stylesheetBaseUrl = null;
+        this.clearParameters();
+      }
+    }
+
+    function xsltPolyfillReady() {
+      loadWasmModule();
+      return polyfillReadyPromise;
+    }
+
+    window.XSLTProcessor = XSLTProcessor;
+    window.xsltPolyfillReady = xsltPolyfillReady;
+
+    function absoluteUrl(url) {
+      return new URL(url, window.location.href).href;
+    }
+
+    // The `xml-stylesheet` types that both Chrome and Firefox apply as XSLT.
+    const xsltPITypes = ['text/xsl', 'application/xslt+xml', 'text/xml', 'application/xml'];
+
+    function findXsltPathInProlog(xmlDoc) {
+      if (!xmlDoc) return null;
+      for (const node of getOn(xmlDoc, 'childNodes')) {
+        if (nodeTypeOf(node) === Node.ELEMENT_NODE) {
+          break;
+        }
+        if (nodeTypeOf(node) === Node.PROCESSING_INSTRUCTION_NODE && node.target === 'xml-stylesheet') {
+          const piData = node.data;
+          const hrefMatch = piData.match(/href\s*=\s*(["'])(.*?)\1/)?.[2];
+          const typeMatch = piData.match(/type\s*=\s*(["'])(.*?)\1/)?.[2]?.toLowerCase();
+          // Like Firefox, skip alternate stylesheets.
+          const alternateMatch = piData.match(/alternate\s*=\s*(["'])(.*?)\1/)?.[2];
+          if (hrefMatch && xsltPITypes.includes(typeMatch) && alternateMatch !== 'yes') {
+            // Decode character references (e.g. "&#038;" in SmartCrawl sitemaps)
+            // and predefined entities in the path, like Chrome and Firefox do.
+            // "&amp;" goes last, so "&amp;#38;" stays "&#38;".
+            const decodeCharRef = (ref, codePoint) => {
+              try {
+                return String.fromCodePoint(codePoint);
+              } catch {
+                return ref; // Out of range.
+              }
+            };
+            return hrefMatch
+              .replace(/&#x([0-9a-fA-F]+);/g, (ref, hex) => decodeCharRef(ref, parseInt(hex, 16)))
+              .replace(/&#([0-9]+);/g, (ref, dec) => decodeCharRef(ref, parseInt(dec, 10)))
+              .replace(/&lt;/g, '<')
+              .replace(/&gt;/g, '>')
+              .replace(/&quot;/g, '"')
+              .replace(/&apos;/g, "'")
+              .replace(/&amp;/g, '&');
+          }
+        }
+      }
+      return null;
+    }
+
+    async function loadXmlWithXsltFromBytes(xmlBytes, xmlUrl) {
+      xmlUrl = absoluteUrl(xmlUrl);
+      // Look inside the XML prolog for a processing instruction with an XSLT file.
+      // Decode only a small chunk at the beginning for performance, isolate the
+      // prolog (before the root element), and parse it with DOMParser so only real
+      // prolog ProcessingInstruction nodes (and not comments/CDATA/body PIs) match.
+      const xmlTextChunk = textDecoder.decode(xmlBytes.subarray(0, 2048));
+      let xsltPath = null;
+      if (xmlTextChunk.includes('<?xml-stylesheet')) {
+        const prologMatch = xmlTextChunk.match(
+          /^(?:\uFEFF)?(?:\s+|<!--[\s\S]*?-->|<\?[\s\S]*?\?>|<!DOCTYPE[^\[>]*(\[[\s\S]*?\])?\s*>)+/i,
+        );
+        if (prologMatch) {
+          const xmlDoc = new DOMParser().parseFromString(prologMatch[0] + '<r/>', 'application/xml');
+          xsltPath = findXsltPathInProlog(xmlDoc);
+        }
+      }
+
+      if (!xsltPath) {
+        // Do not display an error, just leave the original content.
+        console.warn(`XSLT Polyfill: No XSLT processing instruction found in ${xmlUrl}`);
+        setPolyfillSpinner(null);
+        return;
+      }
+
+      // Fetch the XSLT file, resolving its path relative to the XML file's URL.
+      const xsltUrl = new URL(xsltPath, xmlUrl);
+      const xsltDoc = await loadDoc(xsltUrl.href, 'default');
+      if (!xsltDoc) {
+        return showError(`Failed to fetch XSLT file: ${xsltUrl.href}`);
+      }
+
+      // Preprocess imports. libxslt then loads them itself (see compileImports).
+      const preprocessed = new Map();
+      await compileImports(xsltDoc, xsltUrl.href, preprocessed);
+      const xsltText = new XMLSerializer().serializeToString(xsltDoc);
+
+      // Process XML/XSLT and replace the document.
+      try {
+        await xsltPolyfillReady();
+        for (const [url, text] of preprocessed) {
+          preprocessedStylesheets.set(url, text);
+        }
+        let result;
+        try {
+          result = await transformXmlWithXslt(
+            xmlBytes,
+            xsltText,
+            null,
+            xsltUrl.href,
+            /*allowAsync*/ true,
+            /*buildPlainText*/ true,
+          );
+        } finally {
+          for (const url of preprocessed.keys()) {
+            preprocessedStylesheets.delete(url);
+          }
+        }
+        // Replace the document with the result
+        replaceDoc(result.content, result.mimeType);
+      } catch (e) {
+        return showError(`Error processing XML/XSLT: ${e}`);
+      }
+    }
+
+    // Replace the current document with the provided HTML.
+    function replaceDoc(newHTML, mimeType) {
+      setPolyfillSpinner(null);
+      if (typeof newHTML !== 'string') {
+        return showError('newHTML should be a string');
+      }
+      if (isXml) {
+        const htmlRoot = callOn(document, 'createElementNS', 'http://www.w3.org/1999/xhtml', 'html');
+        callOn(getOn(document, 'documentElement'), 'replaceWith', htmlRoot);
+        unsafeReplaceDocumentWithHtml(htmlRoot, newHTML, mimeType);
+      } else {
+        unsafeReplaceDocumentWithHtml(getOn(document, 'documentElement'), newHTML, mimeType);
+      }
+    }
+
+    // Whether Chrome is applying its view-source.css UA stylesheet to the
+    // document, which sets `table { border-spacing: 0 }` (html.css has 2px).
+    // The probe table is in a shadow tree, so the page's styles don't reach it.
+    function usesViewSourceStyles(container) {
+      const xmlns = 'http://www.w3.org/1999/xhtml';
+      const host = callOn(document, 'createElementNS', xmlns, 'div');
+      const table = callOn(document, 'createElementNS', xmlns, 'table');
+      host.attachShadow({ mode: 'closed' }).append(table);
+      callOn(container, 'append', host);
+      const result = parseFloat(getComputedStyle(table).borderSpacing) === 0;
+      host.remove();
+      return result;
+    }
+
+    function unsafeReplaceDocumentWithHtml(targetElement, htmlString, mimeType) {
+      const isHtmlOutput = (mimeType || 'text/html') === 'text/html';
+      if (mimeType === 'text/plain') {
+        const escaped = htmlString.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        htmlString = `<pre>${escaped}</pre>`;
+        mimeType = 'text/html';
+      }
+      // First parse the document and move content to a fragment.
+      let root, parsedDoc;
+      if (mimeType === 'application/xml' && !isXml) {
+        const fakeRoot = `rootelementforparsing`;
+        parsedDoc = new DOMParser().parseFromString(
+          `<${fakeRoot} xmlns="http://www.w3.org/1999/xhtml">${htmlString}</${fakeRoot}>`,
+          mimeType,
+        );
+        root = callOn(parsedDoc, 'querySelector', fakeRoot);
+        lowercaseHtmlAttributes(root);
+      } else {
+        parsedDoc = new DOMParser().parseFromString(htmlString, mimeType || 'text/html');
+        root = getOn(parsedDoc, 'documentElement');
+      }
+      const fragment = callOn(document, 'createDocumentFragment');
+      if (root) {
+        fragment.append(...getOn(root, 'childNodes'));
+      }
+      // Scripts need to be re-created, so they will execute:
+      const scripts = Array.from(fragment.querySelectorAll('script'));
+      const scriptMarkers = scripts.map((oldScript) => {
+        const marker = callOn(document, 'createComment', ' script placeholder ');
+        callOn(getOn(oldScript, 'parentNode'), 'replaceChild', marker, oldScript);
+        return { oldScript, marker };
+      });
+      if (targetElement instanceof HTMLHtmlElement) {
+        // Clear existing attributes to remove any artifacts left by the browser's native XML viewer.
+        // For example, Chrome's XML viewer adds specific IDs or classes to the <html> element.
+        while (getOn(targetElement, 'attributes').length > 0) {
+          callOn(targetElement, 'removeAttribute', getOn(targetElement, 'attributes')[0].name);
+        }
+        for (const attr of getOn(getOn(parsedDoc, 'documentElement'), 'attributes')) {
+          callOn(targetElement, 'setAttribute', attr.name, attr.value);
+        }
+      }
+      callOn(targetElement, 'replaceChildren', fragment);
+      resetEventHandlers(targetElement);
+      if (isXml) {
+        for (const form of callOn(targetElement, 'querySelectorAll', 'form[name]')) {
+          const name = callOn(form, 'getAttribute', 'name');
+          if (name && !(name in document)) {
+            Object.defineProperty(document, name, {
+              configurable: true,
+              get: () => form,
+            });
+          }
+        }
+      }
+      // Natively, HTML output without a doctype (or with a quirky one) is
+      // rendered in quirks mode. The polyfill's document can't switch modes,
+      // so emulate quirks.css's table and list rules (except
+      // `color: -internal-quirk-inherit` on tables). DOMParser applies the same
+      // doctype rules, so its compatMode says whether the output is quirky.
+      // This is prepended before the reset stylesheet below, so it comes after
+      // it in the document, and wins where they overlap.
+      if (
+        targetElement instanceof HTMLHtmlElement &&
+        isHtmlOutput &&
+        getOn(parsedDoc, 'compatMode') === 'BackCompat' &&
+        getOn(document, 'compatMode') !== 'BackCompat'
+      ) {
+        const quirksStyles = callOn(document, 'createElementNS', 'http://www.w3.org/1999/xhtml', 'style');
+        quirksStyles.textContent = `
+          :where(table) {
+            white-space: normal;
+            line-height: normal;
+            font-weight: normal;
+            font-size: medium;
+            font-variant: normal;
+            font-style: normal;
+            text-align: start;
+          }
+          :where(li) {
+            list-style-position: inside;
+          }
+          :where(li) :where(dir, menu, ol, ul) {
+            list-style-position: outside;
+          }
+          :where(dir, menu, ol, ul) :where(dir, menu, ol, ul, li) {
+            list-style-position: unset;
+          }`;
+        const head = callOn(targetElement, 'querySelector', 'head');
+        callOn(head || targetElement, 'prepend', quirksStyles);
+      }
+      if (targetElement instanceof HTMLHtmlElement && usesViewSourceStyles(targetElement)) {
+        // Chrome's XML viewer (which runs when the XML source has no XHTML, SVG,
+        // or MathML elements) marks the document as view-source, so Chrome keeps
+        // applying its view-source.css UA stylesheet to the transformed output.
+        // Undo those rules with html.css's values. These rules have zero
+        // specificity, so author rules still win, but they'd also beat
+        // presentational attributes, hence the `:not([...])` guards.
+        const resetStyles = callOn(document, 'createElementNS', 'http://www.w3.org/1999/xhtml', 'style');
+        resetStyles.textContent = `
+          :where(body:not([marginwidth], [leftmargin])) {
+            margin-left: 8px;
+            margin-right: 8px;
+          }
+          :where(body:not([marginheight], [topmargin])) {
+            margin-top: 8px;
+            margin-bottom: 8px;
+          }
+          :where(table) {
+            min-width: auto;
+            white-space: inherit;
+            font-size: inherit;
+            font-family: inherit;
+            tab-size: inherit;
+          }
+          :where(table:not([width])) {
+            width: auto;
+          }
+          :where(table:not([cellspacing])) {
+            border-spacing: 2px;
+          }
+          :where(table:not([align])) {
+            margin: initial;
+          }
+          :where(td:not([valign])) {
+            vertical-align: inherit;
+          }`;
+        const head = callOn(targetElement, 'querySelector', 'head');
+        callOn(head || targetElement, 'prepend', resetStyles);
+      }
+      (async () => {
+        for (const { oldScript, marker } of scriptMarkers) {
+          let resolvePromise;
+          const promise = new Promise((r) => {
+            resolvePromise = r;
+          });
+          const newScript = callOn(document, 'createElementNS', 'http://www.w3.org/1999/xhtml', 'script');
+          Array.from(getOn(oldScript, 'attributes')).forEach((attr) => {
+            newScript.setAttribute(attr.name, attr.value);
+          });
+          const isAsyncOrDefer = newScript.hasAttribute('async') || newScript.hasAttribute('defer');
+          const isBlocking = newScript.hasAttribute('src') && !isAsyncOrDefer;
+          if (isBlocking) {
+            newScript.addEventListener('load', resolvePromise, { once: true });
+            newScript.addEventListener('error', resolvePromise, { once: true });
+          }
+          newScript.textContent = getOn(oldScript, 'textContent');
+          callOn(getOn(marker, 'parentNode'), 'replaceChild', newScript, marker);
+          if (isBlocking) {
+            await promise;
+          }
+        }
+        dispatchEventOn(document, new OriginalEvent('DOMContentLoaded', { bubbles: true, cancelable: true }));
+        dispatchEventOn(window, new OriginalEvent('load', { bubbles: false, cancelable: false }));
+      })();
+    }
+
+    // If we're polyfilling, we need to patch `Document.prototype.createElement()`,
+    // because that will create XML elements in the (still) XML document.
+    //
+    // NOTE: this patch (and the ones below) must apply *only* to the document
+    // being polyfilled, not to other XML documents (e.g. from
+    // `document.implementation.createDocument()`), which must
+    // keep case-sensitive, null-namespace XML behavior.
+    const _polyfilledDocument = isXml ? document : null;
+    const _originalCreateElement = Document.prototype.createElement;
+    const _originalCreateElementNS = Document.prototype.createElementNS;
+
+    function patchedCreateElement(tagName, options) {
+      if (this === _polyfilledDocument) {
+        const el = _originalCreateElementNS.call(this, 'http://www.w3.org/1999/xhtml', String(tagName).toLowerCase(), options);
+        if (options && options.is) {
+          el.setAttribute('is', options.is);
+        }
+        return el;
+      }
+      return _originalCreateElement.apply(this, arguments);
+    }
+
+    Document.prototype.createElement = patchedCreateElement;
+    document.createElement = patchedCreateElement;
+
+    if (isXml) {
+      const originalTagName = Object.getOwnPropertyDescriptor(Element.prototype, 'tagName').get;
+      Object.defineProperty(Element.prototype, 'tagName', {
+        get() {
+          const val = originalTagName.call(this);
+          if (getOn(this, 'namespaceURI') === 'http://www.w3.org/1999/xhtml' && val) {
+            return val.toUpperCase();
+          }
+          return val;
+        },
+      });
+      const originalNodeName = Object.getOwnPropertyDescriptor(Node.prototype, 'nodeName').get;
+      Object.defineProperty(Node.prototype, 'nodeName', {
+        get() {
+          const val = originalNodeName.call(this);
+          if (nodeTypeOf(this) === 1 && getOn(this, 'namespaceURI') === 'http://www.w3.org/1999/xhtml' && val) {
+            return val.toUpperCase();
+          }
+          return val;
+        },
+      });
+      // Monkeypatch innerHTML, outerHTML, and insertAdjacentHTML for HTML elements in XML documents
+      let _htmlDoc = null;
+      function getHtmlContext(localName, namespaceURI) {
+        if (!_htmlDoc) _htmlDoc = getOn(document, 'implementation').createHTMLDocument('');
+        const ns = namespaceURI || 'http://www.w3.org/1999/xhtml';
+        try {
+          return _htmlDoc.createElementNS(ns, localName || 'div');
+        } catch {
+          return _htmlDoc.createElement('div');
+        }
+      }
+
+      // Sets `html` on `ctxElement` with the browser's own parser, and returns the
+      // resulting nodes (a template's contents, for a template).
+      function parseHtmlInContext(ctxElement, html) {
+        Reflect.apply(originalInnerHTML.set, ctxElement, [html]);
+        const holder = ctxElement instanceof HTMLTemplateElement ? templateContentOf(ctxElement) : ctxElement;
+        return [...getOn(holder, 'childNodes')];
+      }
+
+      // Copies the template contents of `orig` into `clone`, if both are HTML
+      // templates and the contents weren't cloned.
+      function cloneTemplateContent(orig, clone) {
+        if (!(orig instanceof HTMLTemplateElement && clone instanceof HTMLTemplateElement)) return;
+        const cloneContent = templateContentOf(clone);
+        if (getOn(cloneContent, 'firstChild')) return;
+        for (const c of getOn(templateContentOf(orig), 'childNodes')) {
+          callOn(cloneContent, 'appendChild', cloneIntoHtmlDoc(c));
+        }
+      }
+
+      function cloneIntoHtmlDoc(node) {
+        const clone = _htmlDoc.importNode(node, true);
+        if (nodeTypeOf(node) === Node.ELEMENT_NODE) {
+          cloneTemplateContent(node, clone);
+          const origTemplates = callOn(node, 'querySelectorAll', 'template');
+          const cloneTemplates = callOn(clone, 'querySelectorAll', 'template');
+          for (let i = 0; i < origTemplates.length; i++) {
+            cloneTemplateContent(origTemplates[i], cloneTemplates[i]);
+          }
+        }
+        return clone;
+      }
+
+      if (originalInnerHTML) {
+        Object.defineProperty(Element.prototype, 'innerHTML', {
+          get() {
+            if (getOn(this, 'ownerDocument') === _polyfilledDocument) {
+              if (!_htmlDoc) _htmlDoc = getOn(document, 'implementation').createHTMLDocument('');
+              const localName = getOn(this, 'localName');
+              const namespaceURI = getOn(this, 'namespaceURI');
+              const isTemplate = localName === 'template' && namespaceURI === 'http://www.w3.org/1999/xhtml';
+              // Keep the element's own namespace (even null), so that only HTML
+              // raw text elements (script, style, ...) serialize text unescaped.
+              let container;
+              try {
+                container = isTemplate ? getHtmlContext('div') : _htmlDoc.createElementNS(namespaceURI, localName);
+              } catch {
+                container = getHtmlContext('div');
+              }
+              const target = isTemplate && this instanceof HTMLTemplateElement ? templateContentOf(this) : this;
+              for (const child of getOn(target, 'childNodes')) {
+                callOn(container, 'appendChild', cloneIntoHtmlDoc(child));
+              }
+              return Reflect.apply(originalInnerHTML.get, container, []);
+            }
+            return originalInnerHTML.get.call(this);
+          },
+          set(value) {
+            if (getOn(this, 'ownerDocument') === _polyfilledDocument) {
+              const localName = getOn(this, 'localName');
+              const namespaceURI = getOn(this, 'namespaceURI');
+              const nodes = parseHtmlInContext(getHtmlContext(localName, namespaceURI), value);
+              if (
+                localName === 'template' &&
+                namespaceURI === 'http://www.w3.org/1999/xhtml' &&
+                this instanceof HTMLTemplateElement
+              ) {
+                templateContentOf(this).replaceChildren(...nodes);
+                callOn(this, 'replaceChildren');
+              } else {
+                callOn(this, 'replaceChildren', ...nodes);
+              }
+            } else {
+              originalInnerHTML.set.call(this, value);
+            }
+          },
+        });
+      }
+
+      const originalOuterHTML = Object.getOwnPropertyDescriptor(Element.prototype, 'outerHTML');
+      if (originalOuterHTML) {
+        Object.defineProperty(Element.prototype, 'outerHTML', {
+          get() {
+            return originalOuterHTML.get.call(this);
+          },
+          set(value) {
+            if (getOn(this, 'ownerDocument') === _polyfilledDocument) {
+              const parent = getOn(this, 'parentNode');
+              if (!parent || nodeTypeOf(parent) === Node.DOCUMENT_NODE) {
+                throw new DOMException(
+                  "Failed to set the 'outerHTML' property on 'Element': This element has no parent node.",
+                  'NoModificationAllowedError',
+                );
+              }
+              const parentIsElement = nodeTypeOf(parent) === Node.ELEMENT_NODE;
+              const ctxLocalName = parentIsElement ? getOn(parent, 'localName') : 'div';
+              const ctxNamespaceURI = parentIsElement ? getOn(parent, 'namespaceURI') : 'http://www.w3.org/1999/xhtml';
+              const nodes = parseHtmlInContext(getHtmlContext(ctxLocalName, ctxNamespaceURI), value);
+              callOn(this, 'replaceWith', ...nodes);
+            } else {
+              originalOuterHTML.set.call(this, value);
+            }
+          },
+        });
+      }
+
+      const originalInsertAdjacentHTML = Element.prototype.insertAdjacentHTML;
+      if (originalInsertAdjacentHTML) {
+        Element.prototype.insertAdjacentHTML = function (position, text) {
+          if (getOn(this, 'ownerDocument') === _polyfilledDocument) {
+            position = position.toLowerCase();
+            let ctxLocalName = 'div';
+            let ctxNamespaceURI = 'http://www.w3.org/1999/xhtml';
+            if (position === 'beforebegin' || position === 'afterend') {
+              const parent = getOn(this, 'parentNode');
+              if (!parent || nodeTypeOf(parent) === Node.DOCUMENT_NODE) {
+                throw new DOMException(
+                  "Failed to execute 'insertAdjacentHTML' on 'Element': The element has no parent.",
+                  'NoModificationAllowedError',
+                );
+              }
+              if (nodeTypeOf(parent) === Node.ELEMENT_NODE) {
+                ctxLocalName = getOn(parent, 'localName');
+                ctxNamespaceURI = getOn(parent, 'namespaceURI');
+              }
+            } else if (position === 'afterbegin' || position === 'beforeend') {
+              ctxLocalName = getOn(this, 'localName');
+              ctxNamespaceURI = getOn(this, 'namespaceURI');
+            }
+            const nodes = parseHtmlInContext(getHtmlContext(ctxLocalName, ctxNamespaceURI), text);
+            if (position === 'beforebegin') {
+              callOn(this, 'before', ...nodes);
+            } else if (position === 'afterbegin') {
+              callOn(this, 'prepend', ...nodes);
+            } else if (position === 'beforeend') {
+              callOn(this, 'append', ...nodes);
+            } else if (position === 'afterend') {
+              callOn(this, 'after', ...nodes);
+            }
+          } else {
+            originalInsertAdjacentHTML.call(this, position, text);
+          }
+        };
+      }
+    }
+    function parseAndReplaceCurrentXMLDoc(doc) {
+      if (!findXsltPathInProlog(doc)) {
+        setPolyfillSpinner(null);
+        return;
+      }
+      const xml = new XMLSerializer().serializeToString(doc);
+      const xmlBytes = new TextEncoder().encode(xml);
+      xsltPolyfillReady()
+        .then(() => loadXmlWithXsltFromBytes(xmlBytes, getOn(doc, 'defaultView').location.href))
+        .catch((err) => {
+          showError(`Error displaying XML file: ${err.message || err.toString()}`);
+        });
+    }
+
+    async function loadXmlWithXsltFromUrl(url) {
+      url = absoluteUrl(url);
+      const xmlResponse = await fetch(url);
+      if (!xmlResponse.ok) {
+        return showError(`Failed to fetch XML file: ${xmlResponse.statusText}`);
+      }
+      const xmlBytes = new Uint8Array(await xmlResponse.arrayBuffer());
+      // Decode it in its own encoding, and pass it on as UTF-8, which is what
+      // loadXmlWithXsltFromBytes() expects.
+      let xmlText;
+      try {
+        xmlText = decodeXmlBytes(xmlBytes, xmlResponse.headers.get('Content-Type'));
+      } catch (e) {
+        return showError(`Failed to decode XML file: ${e.message}`);
+      }
+      return loadXmlWithXsltFromBytes(new TextEncoder().encode(xmlText), url);
+    }
+
+    function loadXmlUrlWithXsltWhenReady(url) {
+      return xsltPolyfillReady().then(() => loadXmlWithXsltFromUrl(url));
+    }
+
+    window.parseAndReplaceCurrentXMLDoc = parseAndReplaceCurrentXMLDoc;
+    window.loadXmlWithXsltFromBytes = loadXmlWithXsltFromBytes;
+    window.loadXmlWithXsltFromUrl = loadXmlWithXsltFromUrl;
+    window.loadXmlUrlWithXsltWhenReady = loadXmlUrlWithXsltWhenReady;
+    window.showError = showError;
+  } // if (polyfillWillLoad)
+
+  // Replace the current document with the provided error message.
+  function showError(errorMessage) {
+    setPolyfillSpinner(null);
+    const root = getOn(document, 'documentElement');
+    if (root) {
+      setOn(root, 'textContent', errorMessage);
+    }
+    throw new Error(errorMessage);
+  }
+
+  if (polyfillWillLoad && isXml && !options.xsltDontAutoloadXmlDocs) {
+    if (getOn(document, 'readyState') === 'loading') {
+      callOn(
+        document,
+        'addEventListener',
+        'DOMContentLoaded',
+        () => {
+          parseAndReplaceCurrentXMLDoc(document);
+        },
+        { once: true },
+      );
+    } else {
+      parseAndReplaceCurrentXMLDoc(document);
+    }
+  }
+
+  if (!(hasOption('xsltPolyfillQuiet') && options.xsltPolyfillQuiet)) {
+    console.log(`XSLT polyfill v${xsltPolyfillVersion} ${!polyfillWillLoad ? 'NOT ' : ''}installed (native supported: ${nativeSupported}).`);
+  }
+})();

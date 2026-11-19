@@ -1,0 +1,22 @@
+{
+  "repository": "https://github.com/mfreed7/xslt_polyfill",
+  "branch": "main",
+  "commit": "ba5175c41412b7193b4f40e5175fd9e5cc18b379",
+  "commitDate": "2026-11-12T09:37:07-08:00",
+  "version": "1.0.37",
+  "importedOn": "2026-11-19",
+  "wasmGlue": {
+    "path": "dist/xslt-wasm.js",
+    "source": "npm:xslt-polyfill@1.0.37 (package/dist/xslt-wasm.js)",
+    "sha256": "b7d85b045f5e094527152496a5b795c7c92f820a94bcc6a98137607aac003e00"
+  },
+  "pristineSha256": {
+    "src/xslt-polyfill-src.js": "d0824896101fc0764711b8e06124bf3b53bc10484453dc08fa59d0065a8c9edf"
+  },
+  "excluded": [
+    ".git",
+    "xslt-polyfill.min.js",
+    "xslt-polyfill.nowasm.min.js",
+    "xslt-polyfill.wasm"
+  ]
+}

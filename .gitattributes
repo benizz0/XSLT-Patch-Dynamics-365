@@ -1,0 +1,5 @@
+# The emscripten glue embeds the wasm binary in a JS string: it contains raw
+# CR bytes that end-of-line conversion would corrupt (sha256 in UPSTREAM.json).
+vendor/xslt_polyfill/dist/xslt-wasm.js -text -diff
+# Raw Dynamics exports, kept byte for byte for comparison.
+solution/reference/** -text

@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="/sim.js"></script>
+  <title>XSLT Patch - harness</title>
+  <style>
+    body { font: 14px/1.4 system-ui, sans-serif; margin: 16px; }
+    button { margin: 0 8px 8px 0; }
+    pre { background: #f4f4f4; padding: 8px; white-space: pre-wrap; }
+    .pass { color: #0a7a2f; } .fail { color: #b00020; } .skip { color: #8a6d00; }
+  </style>
+  <script>
+    // Fake Xrm (9.x API) - only what the loader uses.
+    window.Xrm = {
+      Utility: { getGlobalContext: function () { return { getClientUrl: function () { return location.origin; } }; } },
+      Navigation: { openAlertDialog: function (o) { alert(o.text); } }
+    };
+    // Fake RequireJS loader, as on Dynamics pages: the polyfill must NOT call it (DYN-001).
+    window.__amdCalls = 0;
+    window.define = function () { window.__amdCalls++; throw new Error('Mismatched anonymous define() module'); };
+    window.define.amd = {};
+  </script>
+  <script src="/WebResources/bnz_/xsltpatch/loader.js"></script>
+  <script src="/legacy-code.js"></script>
+</head>
+<body>
+  <h1>XSLT Patch - banc de test</h1>
+  <p>XSLTProcessor natif supprimé : <b id="removed"></b></p>
+  <button id="b-enable">Règle Enable</button>
+  <button id="b-top">Transform (top)</button>
+  <button id="b-frame">Ajouter iframe</button>
+  <button id="b-popup">Ouvrir rapport SSRS</button>
+  <button id="b-diag">Diagnostic</button>
+  <pre id="out"></pre>
+  <h2>Résultats</h2>
+  <pre id="results"></pre>
+  <div id="frames"></div>
+  <script src="/harness.js"></script>
+</body>
+</html>

@@ -1,0 +1,85 @@
+  <!--
+    Application ribbon (RibbonDiffXml global, sans entité).
+    Un bouton "XSLT Patch" est ajouté sur les barres de commande des grilles,
+    formulaires et sous-grilles de TOUTES les entités ({!EntityLogicalName}),
+    de la Recherche avancée, des pages sans entité (BasicHomeTab) et sur la
+    barre globale UCI (GlobalTab).
+    Sa règle Enable (CustomRule) appelle bnz.XsltPatch.Ribbon.enable : c'est le
+    point d'injection du patch. Elle renvoie false hors diagnostic, donc le
+    bouton est masqué en UCI ; en client web legacy le loader le cache.
+    {{LOADER_LIBRARY}} est remplacé par le build ($webresource:bnz_/xsltpatch/loader.js).
+  -->
+  <RibbonDiffXml>
+    <CustomActions>
+      <CustomAction Id="bnz.XsltPatch.CustomAction.HomepageGrid" Location="Mscrm.HomepageGrid.{!EntityLogicalName}.MainTab.Management.Controls._children" Sequence="9900">
+        <CommandUIDefinition>
+          <Button Id="bnz.XsltPatch.Button.HomepageGrid" Command="bnz.XsltPatch.Command.Diagnostics" Sequence="9900" LabelText="$LocLabels:bnz.XsltPatch.Button.Label" Alt="$LocLabels:bnz.XsltPatch.Button.Label" ToolTipTitle="$LocLabels:bnz.XsltPatch.Button.Label" ToolTipDescription="$LocLabels:bnz.XsltPatch.Button.ToolTip" TemplateAlias="o1" />
+        </CommandUIDefinition>
+      </CustomAction>
+      <CustomAction Id="bnz.XsltPatch.CustomAction.Form" Location="Mscrm.Form.{!EntityLogicalName}.MainTab.Save.Controls._children" Sequence="9900">
+        <CommandUIDefinition>
+          <Button Id="bnz.XsltPatch.Button.Form" Command="bnz.XsltPatch.Command.Diagnostics" Sequence="9900" LabelText="$LocLabels:bnz.XsltPatch.Button.Label" Alt="$LocLabels:bnz.XsltPatch.Button.Label" ToolTipTitle="$LocLabels:bnz.XsltPatch.Button.Label" ToolTipDescription="$LocLabels:bnz.XsltPatch.Button.ToolTip" TemplateAlias="o1" />
+        </CommandUIDefinition>
+      </CustomAction>
+      <CustomAction Id="bnz.XsltPatch.CustomAction.SubGrid" Location="Mscrm.SubGrid.{!EntityLogicalName}.MainTab.Management.Controls._children" Sequence="9900">
+        <CommandUIDefinition>
+          <Button Id="bnz.XsltPatch.Button.SubGrid" Command="bnz.XsltPatch.Command.Diagnostics" Sequence="9900" LabelText="$LocLabels:bnz.XsltPatch.Button.Label" Alt="$LocLabels:bnz.XsltPatch.Button.Label" ToolTipTitle="$LocLabels:bnz.XsltPatch.Button.Label" ToolTipDescription="$LocLabels:bnz.XsltPatch.Button.ToolTip" TemplateAlias="o1" />
+        </CommandUIDefinition>
+      </CustomAction>
+      <!-- 1.0.0.1 : fenêtre Recherche avancée (onglet Mscrm.AdvancedFind, groupe Debug). -->
+      <CustomAction Id="bnz.XsltPatch.CustomAction.AdvancedFind" Location="Mscrm.AdvancedFind.Groups.Debug.Controls._children" Sequence="9900">
+        <CommandUIDefinition>
+          <Button Id="bnz.XsltPatch.Button.AdvancedFind" Command="bnz.XsltPatch.Command.Diagnostics" Sequence="9900" LabelText="$LocLabels:bnz.XsltPatch.Button.Label" Alt="$LocLabels:bnz.XsltPatch.Button.Label" ToolTipTitle="$LocLabels:bnz.XsltPatch.Button.Label" ToolTipDescription="$LocLabels:bnz.XsltPatch.Button.ToolTip" TemplateAlias="o1" />
+        </CommandUIDefinition>
+      </CustomAction>
+      <!-- 1.0.0.1 : pages sans contexte d'entité (paramètres, pages personnalisées) : onglet Mscrm.BasicHomeTab. -->
+      <CustomAction Id="bnz.XsltPatch.CustomAction.BasicHome" Location="Mscrm.BasicHomeTab.Tools.Controls._children" Sequence="9900">
+        <CommandUIDefinition>
+          <Button Id="bnz.XsltPatch.Button.BasicHome" Command="bnz.XsltPatch.Command.Diagnostics" Sequence="9900" LabelText="$LocLabels:bnz.XsltPatch.Button.Label" Alt="$LocLabels:bnz.XsltPatch.Button.Label" ToolTipTitle="$LocLabels:bnz.XsltPatch.Button.Label" ToolTipDescription="$LocLabels:bnz.XsltPatch.Button.ToolTip" TemplateAlias="o1" />
+        </CommandUIDefinition>
+      </CustomAction>
+      <!-- 1.0.0.1 : barre de commande globale UCI (évaluée sur toutes les pages UCI). -->
+      <CustomAction Id="bnz.XsltPatch.CustomAction.Global" Location="Mscrm.GlobalTab.New.Controls._children" Sequence="9900">
+        <CommandUIDefinition>
+          <Button Id="bnz.XsltPatch.Button.Global" Command="bnz.XsltPatch.Command.Diagnostics" Sequence="9900" LabelText="$LocLabels:bnz.XsltPatch.Button.Label" Alt="$LocLabels:bnz.XsltPatch.Button.Label" ToolTipTitle="$LocLabels:bnz.XsltPatch.Button.Label" ToolTipDescription="$LocLabels:bnz.XsltPatch.Button.ToolTip" TemplateAlias="o1" />
+        </CommandUIDefinition>
+      </CustomAction>
+    </CustomActions>
+    <Templates>
+      <RibbonTemplates Id="Mscrm.Templates"></RibbonTemplates>
+    </Templates>
+    <CommandDefinitions>
+      <CommandDefinition Id="bnz.XsltPatch.Command.Diagnostics">
+        <EnableRules>
+          <EnableRule Id="bnz.XsltPatch.EnableRule.Bootstrap" />
+        </EnableRules>
+        <DisplayRules />
+        <Actions>
+          <JavaScriptFunction FunctionName="bnz.XsltPatch.Ribbon.showDiagnostics" Library="{{LOADER_LIBRARY}}" />
+        </Actions>
+      </CommandDefinition>
+    </CommandDefinitions>
+    <RuleDefinitions>
+      <TabDisplayRules />
+      <DisplayRules />
+      <EnableRules>
+        <EnableRule Id="bnz.XsltPatch.EnableRule.Bootstrap">
+          <CustomRule FunctionName="bnz.XsltPatch.Ribbon.enable" Library="{{LOADER_LIBRARY}}" Default="false" />
+        </EnableRule>
+      </EnableRules>
+    </RuleDefinitions>
+    <LocLabels>
+      <LocLabel Id="bnz.XsltPatch.Button.Label">
+        <Titles>
+          <Title description="XSLT Patch" languagecode="1036" />
+          <Title description="XSLT Patch" languagecode="1033" />
+        </Titles>
+      </LocLabel>
+      <LocLabel Id="bnz.XsltPatch.Button.ToolTip">
+        <Titles>
+          <Title description="Diagnostic du correctif XSLT (polyfill)." languagecode="1036" />
+          <Title description="XSLT patch (polyfill) diagnostics." languagecode="1033" />
+        </Titles>
+      </LocLabel>
+    </LocLabels>
+  </RibbonDiffXml>

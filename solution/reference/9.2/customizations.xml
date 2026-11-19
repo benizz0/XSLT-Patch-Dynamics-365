@@ -1,0 +1,29 @@
+<ImportExportXml xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" OrganizationVersion="9.2.26111.138" OrganizationSchemaType="Full" CRMServerServiceabilityVersion="9.2.26111.00138">
+  <Entities></Entities>
+  <Roles></Roles>
+  <Workflows></Workflows>
+  <FieldSecurityProfiles></FieldSecurityProfiles>
+  <Templates />
+  <RibbonDiffXml>
+    <CustomActions />
+    <Templates>
+      <RibbonTemplates Id="Mscrm.Templates"></RibbonTemplates>
+    </Templates>
+    <CommandDefinitions />
+    <RuleDefinitions>
+      <TabDisplayRules />
+      <DisplayRules />
+      <EnableRules />
+    </RuleDefinitions>
+    <LocLabels />
+  </RibbonDiffXml>
+  <EntityMaps />
+  <EntityRelationships />
+  <OrganizationSettings />
+  <optionsets />
+  <CustomControls />
+  <EntityDataProviders />
+  <Languages>
+    <Language>1036</Language>
+  </Languages>
+</ImportExportXml>

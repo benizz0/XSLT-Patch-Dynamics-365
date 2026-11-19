@@ -1,0 +1,20 @@
+<ImportExportXml xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" OrganizationVersion="{{ORG_VERSION}}" OrganizationSchemaType="Full">
+  <Entities></Entities>
+  <Roles></Roles>
+  <Workflows></Workflows>
+  <FieldSecurityProfiles></FieldSecurityProfiles>
+  <Templates />
+{{RIBBON_DIFF_XML}}
+  <EntityMaps />
+  <EntityRelationships />
+  <OrganizationSettings />
+  <optionsets />
+  <WebResources>
+{{WEB_RESOURCES}}
+  </WebResources>
+  <CustomControls />
+  <EntityDataProviders />
+  <Languages>
+    <Language>{{BASE_LANGUAGE}}</Language>
+  </Languages>
+</ImportExportXml>
