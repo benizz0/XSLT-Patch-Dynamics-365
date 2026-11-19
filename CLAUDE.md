@@ -15,7 +15,7 @@ Les règles communes à tous les agents sont dans AGENTS.md. Elles s'appliquent 
   `embedderOptions`, `isNativeXsltSupported`, `class XSLTProcessor`, `loadWasmModule`.
   Le fichier fait environ 1 300 lignes : lire des plages, pas le fichier entier.
 - Ne jamais lire `vendor/xslt_polyfill/dist/xslt-wasm.js` ni
-  `build/webresources/bnz_/xsltpatch/xslt-polyfill.js` : 1,3 Mo, une ligne, wasm encodé.
+  `build/webresources/bnz_/xsltpatch/xsltpolyfill.js` : 1,3 Mo, une ligne, wasm encodé.
   Utiliser `grep -o` avec un motif court si besoin.
 - Les fichiers de `tmp/` et `solution/reference/` sont des exports Dynamics bruts : servent à
   comparer, jamais à générer.

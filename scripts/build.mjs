@@ -100,6 +100,33 @@ function polyfillVersion() {
   return m ? m[1] : 'unknown';
 }
 
+// CRM 8.2 refuses any other character at import (0x8004F117, #9): "Web resource
+// names may only include letters, numbers, periods, and nonconsecutive forward
+// slash characters". The underscore of the publisher prefix is accepted too.
+// 9.x is more lenient (hyphens), so 8.2 sets the rule for every target.
+const WEB_RESOURCE_NAME = /^[A-Za-z0-9_.]+(?:\/[A-Za-z0-9_.]+)*$/;
+const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+function checkWebResources(cfg) {
+  const prefix = `${cfg.publisher.customizationPrefix}_/`;
+  const retired = cfg.retiredWebResources || [];
+  const ids = new Set();
+  const names = new Set();
+  for (const wr of cfg.webResources) {
+    assert(WEB_RESOURCE_NAME.test(wr.name), `Web resource name refused by CRM 8.2 (letters, digits, "_", "." and single "/" only): ${wr.name}`);
+    assert(wr.name.startsWith(prefix), `Web resource name must start with "${prefix}": ${wr.name}`);
+    assert(GUID.test(wr.id), `Web resource ${wr.name}: id must be a lower-case GUID, got ${wr.id}`);
+    assert(!ids.has(wr.id), `Web resource id used twice: ${wr.id}`);
+    assert(!names.has(wr.name.toLowerCase()), `Web resource name used twice: ${wr.name}`);
+    ids.add(wr.id);
+    names.add(wr.name.toLowerCase());
+  }
+  for (const r of retired) {
+    assert(!ids.has(r.id), `Web resource id ${r.id} is retired (${r.name}), give it a new GUID`);
+    assert(!names.has(r.name.toLowerCase()), `Web resource name ${r.name} is retired, pick another name`);
+  }
+}
+
 // ---------- solution xml ----------
 function webResourceFileName(name) {
   return `/WebResources/${name}`;
@@ -262,6 +289,7 @@ async function main() {
   const version = args.version || cfg.version;
   assert(/^\d+\.\d+\.\d+\.\d+$/.test(version), `Version must be a.b.c.d, got ${version}`);
   const targets = args.targets.length ? args.targets : cfg.defaultTargets;
+  checkWebResources(cfg);
 
   const polyfillWr = cfg.webResources.find((w) => w.build === 'polyfill');
   const loaderWr = cfg.webResources.find((w) => w.build === 'loader');
