@@ -21,7 +21,8 @@
       "rootComponentBehavior": false,
       "stripCustomizationNodes": ["CustomControls", "EntityDataProviders"],
       "excludeRibbonCustomActions": ["bnz.XsltPatch.CustomAction.Global"],
-      "forbiddenRibbonLocations": ["Mscrm.GlobalTab"]
+      "forbiddenRibbonLocations": ["Mscrm.GlobalTab"],
+      "webResourceVerFormat": "integer"
     },
     "9.1": {
       "packageVersion": "9.1",

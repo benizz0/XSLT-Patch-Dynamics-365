@@ -2,6 +2,10 @@
   // Tokens {{...}} are replaced by scripts/build.mjs.
   X.build = {
     version: '{{BNZ_VERSION}}',
+    // Value of the ?ver= cache-buster on the URLs the loader builds. Set per
+    // target by the build: the solution version, or an integer on CRM 8.2,
+    // which answers HTTP 500 to a non-integer ver (#13).
+    webResourceVer: '{{WEBRESOURCE_VER}}',
     polyfillVersion: '{{POLYFILL_VERSION}}',
     polyfillWebResource: '{{POLYFILL_WEBRESOURCE}}',
     loaderWebResource: '{{LOADER_WEBRESOURCE}}',

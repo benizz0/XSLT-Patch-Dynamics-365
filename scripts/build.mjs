@@ -251,6 +251,20 @@ function checkRibbonLocations(targetKey, target, ribbon) {
   }
 }
 
+// Cache-buster (?ver=) on the web resource URLs the loader builds itself (#13). CRM 8.2
+// answers HTTP 500 to a non-integer ver ("1.0.0.9"), so its target uses an integer:
+// a.b.c.d -> a*1000000 + b*10000 + c*100 + d (b, c, d < 100, result fits an Int32).
+function webResourceVer(targetKey, target, version) {
+  const format = target.webResourceVerFormat || 'version';
+  if (format === 'version') return version;
+  assert(format === 'integer', `Target ${targetKey}: "webResourceVerFormat" must be "version" or "integer", got ${format}`);
+  const [a, b, c, d] = version.split('.').map(Number);
+  assert(b < 100 && c < 100 && d < 100, `Target ${targetKey}: version ${version} has a part >= 100, no integer ver possible`);
+  const n = a * 1000000 + b * 10000 + c * 100 + d;
+  assert(n <= 2147483647, `Target ${targetKey}: integer ver ${n} does not fit an Int32`);
+  return String(n);
+}
+
 function buildSolution(cfg, targetKey, version, webResourceContents, managed) {
   const target = cfg.targets[targetKey];
   assert(target, `Unknown target ${targetKey} (see solution/solution.config.json "targets")`);
@@ -336,7 +350,9 @@ async function main() {
   console.log(`> web resources (solution ${version}, polyfill ${tokens.POLYFILL_VERSION})`);
   const contents = {};
   for (const wr of cfg.webResources) {
-    if (wr.build === 'loader') contents[wr.name] = buildLoader(tokens);
+    // build/webresources gets the loader with the default cache-buster; a target with
+    // another webResourceVerFormat gets its own copy in its package (see below).
+    if (wr.build === 'loader') contents[wr.name] = buildLoader({ ...tokens, WEBRESOURCE_VER: version });
     else if (wr.build === 'polyfill') contents[wr.name] = await buildPolyfill(tokens, args.minify);
     else if (wr.source) contents[wr.name] = read(P(wr.source));
     else throw new Error(`Web resource ${wr.name}: needs "build" or "source"`);
@@ -346,7 +362,17 @@ async function main() {
   }
 
   for (const t of targets) {
-    const files = buildSolution(cfg, t, version, contents, args.managed);
+    assert(cfg.targets[t], `Unknown target ${t} (see solution/solution.config.json "targets")`);
+    const ver = webResourceVer(t, cfg.targets[t], version);
+    const targetContents = ver === version
+      ? contents
+      : { ...contents, [loaderWr.name]: buildLoader({ ...tokens, WEBRESOURCE_VER: ver }) };
+    assert(
+      targetContents[loaderWr.name].includes(`webResourceVer: '${ver}'`),
+      `Target ${t}: loader does not carry webResourceVer '${ver}'`
+    );
+    if (ver !== version) console.log(`> ${t}: loader with ?ver=${ver}`);
+    const files = buildSolution(cfg, t, version, targetContents, args.managed);
     const suffix = args.managed ? '_managed' : '';
     const stage = P('dist', `crm${t.replace('.', '')}${suffix}`);
     fs.rmSync(stage, { recursive: true, force: true });
