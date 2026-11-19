@@ -7,6 +7,25 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
 ## [Non publié]
 
+## [1.0.0.9] - 2026-11-19
+
+Correctif d'import CRM 8.2 : le package 8.2 de 1.0.0.8 était refusé à l'étape des rubans de
+l'application. Loader et polyfill inchangés. Paquets 9.1 et 9.2 inchangés.
+
+### Corrigé
+
+- **Import refusé sur CRM 8.2 : dépendance vers `Mscrm.GlobalTab.New.Controls` (#11).**
+  La barre de commande globale (`Mscrm.GlobalTab`) n'existe qu'en UCI. CRM 8.2 ne la connaît
+  pas et refusait `bnz.XsltPatch.CustomAction.Global` (`0x8004F107`). Le paquet 8.2 ne
+  contient plus cette CustomAction. Les cinq autres (grilles, formulaires, sous-grilles,
+  Recherche avancée, `BasicHomeTab`) restent, et ce sont elles qui chargent le loader en
+  client legacy. Le bouton Global ne s'y affichait de toute façon jamais.
+- **Build : emplacements de ribbon par cible.** Nouvelles clés de cible dans
+  `solution.config.json` : `excludeRibbonCustomActions` (CustomActions retirées du paquet,
+  chaque id doit exister dans `RibbonDiffXml.xml`) et `forbiddenRibbonLocations` (racines
+  d'emplacement interdites, le build échoue si le ribbon généré y fait référence). La cible
+  8.2 interdit `Mscrm.GlobalTab`.
+
 ## [1.0.0.8] - 2026-11-19
 
 Correctif d'import CRM 8.2 : le package 1.0.0.7 était refusé à l'import de la web resource
