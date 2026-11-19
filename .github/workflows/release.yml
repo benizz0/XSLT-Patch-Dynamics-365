@@ -52,9 +52,17 @@ jobs:
         run: npm ci
 
       # Refuses a version lower than the one in solution.config.json.
+      # Plain assignment first: under `bash -e` its status is the script's, so a
+      # refusal stops the job (inside `echo "...$(...)"` it was echo's status).
       - name: Set version
         id: setver
-        run: echo "result=$(node scripts/release.mjs set-version "$VERSION")" >> "$GITHUB_OUTPUT"
+        run: |
+          result=$(node scripts/release.mjs set-version "$VERSION")
+          case "$result" in
+            changed|unchanged) ;;
+            *) echo "::error::Unexpected set-version result '$result'"; exit 1 ;;
+          esac
+          echo "result=$result" >> "$GITHUB_OUTPUT"
 
       - name: Test
         run: npm test
