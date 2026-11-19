@@ -2,7 +2,7 @@
   "uniqueName": "XSLT_Patch",
   "displayName": "XSLT Patch",
   "description": "Polyfill XSLT (libxslt/WASM) pour Dynamics CRM 8.2 à 9.2 : injection par règle Enable du ribbon applicatif, y compris dans les fenêtres de rapports SSRS.",
-  "version": "1.0.0.8",
+  "version": "1.0.0.9",
   "baseLanguage": 1036,
   "labelLanguages": [1036, 1033],
   "publisher": {
