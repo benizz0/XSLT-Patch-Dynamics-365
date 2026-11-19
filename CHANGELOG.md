@@ -7,6 +7,12 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
 ## [Non publié]
 
+## [1.0.0.8] - 2026-11-19
+
+Correctif d'import CRM 8.2 : le package 1.0.0.7 était refusé à l'import de la web resource
+du polyfill. Comportement du loader et du polyfill inchangé : seuls le nom et le GUID de la
+web resource du polyfill changent.
+
 ### Corrigé
 
 - **Import refusé sur CRM 8.2 : nom de web resource `xslt-polyfill.js` (#9).** CRM 8.2
