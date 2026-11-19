@@ -106,30 +106,6 @@ encore été importée dans une org réelle.
 et compléter [CHANGELOG.md](CHANGELOG.md). La version sert de cache-buster (`?ver=`) pour les
 web resources.
 
-## CI et releases (GitHub Actions)
-
-- **CI** (`.github/workflows/ci.yml`) : à chaque push sur `main` et à chaque pull request vers
-  `main`. `npm ci`, `npm test` (Chrome headless), puis build des solutions gérées et non
-  gérées, gardées 14 jours en artefact du run.
-- **Release** (`.github/workflows/release.yml`) : manuelle. *Actions > Release > Run
-  workflow*, sur `main`, avec la version au format `a.b.c.d` :
-  1. refuse un format invalide, un tag existant ou une version inférieure à celle de
-     `solution.config.json` ;
-  2. écrit la version dans `solution.config.json`, lance `npm test` ;
-  3. construit les solutions **gérées** 8.2, 9.1 et 9.2 ;
-  4. commite la version sur `main` (`chore(release): a.b.c.d`) si elle a changé, crée le tag
-     `a.b.c.d` ;
-  5. publie la release GitHub avec les trois zips en assets. Les notes viennent de la section
-     `## [a.b.c.d]` de `CHANGELOG.md` (notes générées par GitHub si elle manque).
-
-  Écrire l'entrée du CHANGELOG **avant** de lancer la release. Si `main` est protégée, le
-  workflow doit avoir le droit d'y pousser.
-
-```powershell
-node scripts/release.mjs set-version 1.0.1.0   # ce que fait la release, en local
-node scripts/release.mjs notes 1.0.0.5         # section du CHANGELOG utilisée comme notes
-```
-
 ## Installer
 
 1. Paramètres > Solutions > Importer, choisir le zip de la bonne cible.
@@ -214,5 +190,16 @@ Les correctifs Dynamics (appliqués et prévus) sont listés dans
 ## Licences
 
 - Code de ce dépôt : BSD-3-Clause.
-- `vendor/xslt_polyfill` : BSD-3-Clause, © 2025 Mason Freed ([LICENSE](vendor/xslt_polyfill/LICENSE)).
-- libxml2 et libxslt (embarqués dans le WASM) : licence MIT.
+- `vendor/xslt_polyfill` : fork local de
+  [mfreed7/xslt_polyfill](https://github.com/mfreed7/xslt_polyfill) (version et commit dans
+  [UPSTREAM.json](vendor/xslt_polyfill/UPSTREAM.json)). BSD-3-Clause, © 2025 Mason Freed
+  ([LICENSE](vendor/xslt_polyfill/LICENSE)).
+- `vendor/xslt_polyfill/dist/xslt-wasm.js` : repris du paquet npm
+  [xslt-polyfill](https://www.npmjs.com/package/xslt-polyfill) de la même version, même licence.
+- [libxml2](https://gitlab.gnome.org/GNOME/libxml2) et
+  [libxslt](https://gitlab.gnome.org/GNOME/libxslt) (projets GNOME, embarqués dans le WASM) :
+  licence MIT.
+- [Emscripten](https://github.com/emscripten-core/emscripten) (glue JavaScript du WASM) :
+  licence MIT / University of Illinois NCSA.
+- [terser](https://github.com/terser/terser) (minification au build, non livré) :
+  BSD-2-Clause.
