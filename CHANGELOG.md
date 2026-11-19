@@ -7,6 +7,49 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
 ## [Non publié]
 
+## [1.0.0.10] - 2026-11-19
+
+Correctif d'exécution CRM 8.2 : le paquet 1.0.0.9 s'importait, mais le loader n'arrivait pas
+à télécharger le polyfill. Polyfill inchangé. Paquets 9.1 et 9.2 : même comportement qu'en
+1.0.0.9, seul le numéro de version change.
+
+### Corrigé
+
+- **CRM 8.2 : `polyfill download failed: HTTP 500` (#13).** Le loader télécharge le polyfill
+  (et sa propre copie, pour les popups) par des URL qu'il construit lui-même :
+  `<clientUrl>/WebResources/<nom>?ver=<version>`. CRM 8.2 répond 500 quand `ver` n'est pas
+  un entier (`?ver=1.0.0.9`), alors que la même URL sans `ver` ou avec `?ver=1009` répond 200.
+  Le loader du paquet 8.2 envoie désormais la version sous forme d'entier :
+  `?ver=1000010` pour 1.0.0.10.
+
+### Ajouté
+
+- **Build : format du cache-buster par cible.** Clé de cible `webResourceVerFormat` dans
+  `solution.config.json` :
+  - `"version"` (défaut) : la version de la solution telle quelle (`1.0.0.10`).
+  - `"integer"` : `a.b.c.d` devient `a*1000000 + b*10000 + c*100 + d`. Le build échoue si
+    `b`, `c` ou `d` vaut 100 ou plus, ou si le résultat dépasse un Int32.
+
+  Seule la cible 8.2 utilise `"integer"`. Le loader devient donc propre à chaque paquet : le
+  zip 8.2 contient sa propre copie, `build/webresources/` garde celle des cibles 9.x. Le build
+  vérifie que chaque paquet embarque le loader au bon format.
+
+### Mise à niveau
+
+- **CRM 8.2** : importer le paquet 8.2 par-dessus 1.0.0.9 puis publier. Aucun nettoyage de
+  cache n'est nécessaire : le nouveau `ver` diffère de tous ceux envoyés jusqu'ici.
+- **9.x** : mise à jour normale depuis 1.0.0.9 avec le paquet 9.1 ou 9.2. Le paquet 8.2 importé
+  en 9.x devrait aussi fonctionner (Dynamics y envoie lui-même des `ver` entiers), mais ce
+  cas n'a pas été testé.
+
+### Limites restantes
+
+- Vérifié par le build et le banc headless (28 cas), qui sert le loader au format 9.x et ne
+  simule pas le refus de CRM 8.2. Sur l'org 8.2 de #13, seul un test manuel d'URL
+  (`?ver=1009`) a été fait ; un import réel du paquet 1.0.0.10 reste à faire.
+- Le segment de cache `/{<horodatage>}/` que Dynamics insère avant `WebResources` n'est
+  toujours pas repris : #13 montre que l'URL sans ce segment répond bien en 8.2.
+
 ## [1.0.0.9] - 2026-11-19
 
 Correctif d'import CRM 8.2 : le package 8.2 de 1.0.0.8 était refusé à l'étape des rubans de

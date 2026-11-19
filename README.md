@@ -104,7 +104,9 @@ encore été importée dans une org réelle.
 
 **Avant chaque livraison, incrémenter la version** (`solution.config.json` ou `--version`)
 et compléter [CHANGELOG.md](CHANGELOG.md). La version sert de cache-buster (`?ver=`) pour les
-web resources.
+web resources. CRM 8.2 répond 500 à un `ver` non entier : le loader du paquet 8.2 envoie la
+version sous forme d'entier (`1.0.0.10` donne `1000010`, clé de cible
+`webResourceVerFormat`).
 
 ## Installer
 

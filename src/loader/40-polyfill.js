@@ -31,7 +31,7 @@
 
   X.webResourceUrl = function (name) {
     var base = X.state.clientUrl.replace(/\/+$/, '');
-    return base + '/WebResources/' + name + '?ver=' + encodeURIComponent(X.build.version);
+    return base + '/WebResources/' + name + '?ver=' + encodeURIComponent(X.build.webResourceVer);
   };
 
   X.polyfillUrl = function () {
