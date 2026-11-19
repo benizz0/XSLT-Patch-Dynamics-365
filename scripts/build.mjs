@@ -220,14 +220,47 @@ function checkCustomizationsRoot(targetKey, target, xml) {
   }
 }
 
+const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// Some ribbon locations do not exist on every target (Mscrm.GlobalTab is UCI only, so CRM 8.2
+// refuses the import with 0x8004F107, see #11). The target lists the CustomActions to drop.
+// The comment right above a dropped CustomAction goes with it.
+function stripRibbonCustomActions(targetKey, target, ribbon) {
+  const ids = target.excludeRibbonCustomActions || [];
+  assert(Array.isArray(ids), `Target ${targetKey}: "excludeRibbonCustomActions" must be an array`);
+  for (const id of ids) {
+    const re = new RegExp(
+      `(?:[ \\t]*<!--(?:(?!-->)[\\s\\S])*-->\\s*)?[ \\t]*<CustomAction\\s+Id="${escapeRegExp(id)}"[\\s\\S]*?</CustomAction>[ \\t]*\\r?\\n?`
+    );
+    assert(re.test(ribbon), `Target ${targetKey}: excluded CustomAction ${id} not found in RibbonDiffXml.xml`);
+    ribbon = ribbon.replace(re, '');
+  }
+  return ribbon;
+}
+
+// Regression guard for #11: no ribbon element of the target may sit on a location the
+// target does not have. Comments are ignored, only attribute values count.
+function checkRibbonLocations(targetKey, target, ribbon) {
+  const forbidden = target.forbiddenRibbonLocations || [];
+  assert(Array.isArray(forbidden), `Target ${targetKey}: "forbiddenRibbonLocations" must be an array`);
+  const code = ribbon.replace(/<!--[\s\S]*?-->/g, '');
+  const values = [...code.matchAll(/\s(?:Location|Id|Command|Library)="([^"]*)"/g)].map((m) => m[1]);
+  for (const root of forbidden) {
+    const hit = values.find((v) => v === root || v.startsWith(`${root}.`));
+    assert(!hit, `Target ${targetKey}: ribbon references ${hit}, unavailable on this target (forbiddenRibbonLocations)`);
+  }
+}
+
 function buildSolution(cfg, targetKey, version, webResourceContents, managed) {
   const target = cfg.targets[targetKey];
   assert(target, `Unknown target ${targetKey} (see solution/solution.config.json "targets")`);
   const loader = cfg.webResources.find((w) => w.build === 'loader');
 
-  const ribbon = fill(read(P('solution', 'ribbon', 'RibbonDiffXml.xml')), {
+  const ribbon = stripRibbonCustomActions(targetKey, target, fill(read(P('solution', 'ribbon', 'RibbonDiffXml.xml')), {
     LOADER_LIBRARY: `$webresource:${loader.name}`
-  }, 'RibbonDiffXml.xml');
+  }, 'RibbonDiffXml.xml'));
+  checkRibbonLocations(targetKey, target, ribbon);
+  assert(/<CustomAction\s/.test(ribbon), `Target ${targetKey}: no CustomAction left, the loader would never load`);
 
   const common = {
     ORG_VERSION: target.organizationVersion,

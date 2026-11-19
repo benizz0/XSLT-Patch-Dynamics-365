@@ -74,8 +74,10 @@ Il doit afficher `AUTOTEST PASS`. Si aucun navigateur n'est disponible, lancer a
 6. **Noms de schéma préfixés `bnz`** (éditeur `Benizz0`, préfixe d'options `75934`).
    Ids ribbon : `bnz.XsltPatch.*`.
 7. **Compatibilité 8.2** : pas d'élément XML 9.x dans la cible 8.2 (voir
-   `targets["8.2"].stripCustomizationNodes`). Pas d'API `Xrm` 9.x sans repli 8.x
-   (voir `X.getClientUrl`).
+   `targets["8.2"].stripCustomizationNodes`). Pas d'emplacement de ribbon 9.x ou UCI dans
+   la cible 8.2 : l'import refuse une dépendance vers un contrôle absent (`0x8004F107`).
+   Voir `excludeRibbonCustomActions` et `forbiddenRibbonLocations`, vérifiés par le build.
+   Pas d'API `Xrm` 9.x sans repli 8.x (voir `X.getClientUrl`).
 8. **Version** : l'incrémenter pour chaque livraison et ajouter une entrée dans
    [CHANGELOG.md](CHANGELOG.md). Elle invalide le cache des web resources (`?ver=`).
 9. **Propriété des hooks.** Une copie du loader ne pose de hooks (`window.open`,

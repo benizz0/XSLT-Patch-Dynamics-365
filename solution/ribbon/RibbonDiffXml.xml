@@ -3,7 +3,8 @@
     Un bouton "XSLT Patch" est ajouté sur les barres de commande des grilles,
     formulaires et sous-grilles de TOUTES les entités ({!EntityLogicalName}),
     de la Recherche avancée, des pages sans entité (BasicHomeTab) et sur la
-    barre globale UCI (GlobalTab).
+    barre globale UCI (GlobalTab, 9.x seulement : le build la retire de la cible
+    8.2, voir targets["8.2"].excludeRibbonCustomActions).
     Sa règle Enable (CustomRule) appelle bnz.XsltPatch.Ribbon.enable : c'est le
     point d'injection du patch. Elle renvoie false hors diagnostic, donc le
     bouton est masqué en UCI ; en client web legacy le loader le cache.
