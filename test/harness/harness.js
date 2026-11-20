@@ -251,7 +251,7 @@
       report('late shim kept in auto mode (#4)',
         shimAuto.kept && shimAuto.works && !shimAuto.polyfilled && shimAuto.skipped ? 'pass' : 'fail', JSON.stringify(shimAuto));
       report('stub reference kept by the page returns the late shim (#4)',
-        shimAuto.stubGivesShim ? 'pass' : 'fail', String(shimAuto.stubGivesShim));
+        shimAuto.stubGivesShim === true ? 'pass' : 'fail', String(shimAuto.stubGivesShim));
       var shimAlways = await runLateShimCase('always');
       report('late shim replaced in always mode (#4)',
         !shimAlways.kept && shimAlways.polyfilled && !shimAlways.skipped ? 'pass' : 'fail', JSON.stringify(shimAlways));
