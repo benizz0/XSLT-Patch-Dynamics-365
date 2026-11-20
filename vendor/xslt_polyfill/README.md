@@ -1,5 +1,9 @@
 # XSLT Polyfill
 
+> Fork local de [mfreed7/xslt_polyfill](https://github.com/mfreed7/xslt_polyfill),
+> développé par **Mason Freed**. Version et commit d'origine : `UPSTREAM.json`.
+> Correctifs propres à Dynamics : `DYNAMICS_PATCHES.md`.
+
 This is a polyfill for the [XSLT W3C 1.0](https://www.w3.org/TR/xslt-10/)
 standard, roughly as shipped in the Chrome browser. It is intended as a
 replacement for using the XSLT processing machinery built into browsers. It
