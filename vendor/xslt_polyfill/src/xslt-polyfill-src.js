@@ -417,9 +417,10 @@
     // same-origin XHR and inlined before the stylesheet reaches libxslt:
     //  - xsl:include is replaced in place by the top-level elements it contains;
     //  - xsl:import content is placed before the importing stylesheet's own
-    //    elements, in import order (later wins, as libxslt keeps the last of
-    //    equal-priority templates), minus the named templates and top-level
-    //    variables/params the importing stylesheet defines itself.
+    //    elements, in import order. Import precedence is kept: named templates
+    //    and global variables/params of higher precedence replace the others,
+    //    and template rules get an explicit priority that ranks precedence
+    //    before priority (a local rule beats an imported priority="10").
     // xsl:apply-imports has nothing left to apply. document() is not covered.
     const DYN_XSLNS = 'http://www.w3.org/1999/XSL/Transform';
     const DYN_XMLNSNS = 'http://www.w3.org/2000/xmlns/';
@@ -494,9 +495,17 @@
       if (el.nodeType !== 1 || el.namespaceURI !== DYN_XSLNS) {
         return null;
       }
-      const name = el.getAttribute('name');
+      let name = el.getAttribute('name');
       if (!name) {
         return null;
+      }
+      // Compare expanded names: p:x and q:x match when p and q are bound to
+      // the same URI, and differ when one prefix is bound to two URIs.
+      const colon = name.indexOf(':');
+      if (colon > 0) {
+        const prefix = name.slice(0, colon);
+        const uri = el.lookupNamespaceURI(prefix);
+        name = '{' + (uri === null ? prefix + ':' : uri) + '}' + name.slice(colon + 1);
       }
       if (el.localName === 'template') {
         return 'template:' + name;
@@ -507,20 +516,153 @@
       return null;
     }
 
-    function dynInlineDoc(doc, baseUrl, seen, depth, report) {
+    // Import precedence of each top-level XSLT element, carried by a temporary
+    // attribute while the modules are flattened (removed before serializing).
+    const DYN_PRECNS = 'urn:bnz:xsltpatch:import-precedence';
+
+    function dynIsXsl(el, localName) {
+      return el.nodeType === 1 && el.namespaceURI === DYN_XSLNS && el.localName === localName;
+    }
+
+    function dynPrecedence(el) {
+      return Number(el.getAttributeNS(DYN_PRECNS, 'prec')) || 0;
+    }
+
+    // Top-level alternatives of a union pattern ("a|b[@x='|']").
+    function dynSplitUnion(pattern) {
+      const parts = [];
+      let depth = 0;
+      let quote = null;
+      let start = 0;
+      for (let i = 0; i < pattern.length; i++) {
+        const c = pattern[i];
+        if (quote) {
+          if (c === quote) {
+            quote = null;
+          }
+        } else if (c === '"' || c === "'") {
+          quote = c;
+        } else if (c === '[' || c === '(') {
+          depth++;
+        } else if (c === ']' || c === ')') {
+          depth--;
+        } else if (c === '|' && depth === 0) {
+          parts.push(pattern.slice(start, i).trim());
+          start = i + 1;
+        }
+      }
+      parts.push(pattern.slice(start).trim());
+      return parts;
+    }
+
+    // Default priority of one pattern alternative (XSLT 1.0, section 5.5).
+    const DYN_NCNAME = '[^\\s/\\[\\]()|*:@\'"=<>!,$]+';
+    const DYN_QNAME_RE = new RegExp('^' + DYN_NCNAME + '(?::' + DYN_NCNAME + ')?$');
+    const DYN_NSWILD_RE = new RegExp('^' + DYN_NCNAME + ':\\*$');
+    function dynDefaultPriority(alternative) {
+      const step = alternative.replace(/^(?:(?:child|attribute)\s*::|@)\s*/, '');
+      if (DYN_QNAME_RE.test(step) || /^processing-instruction\s*\(\s*(["'])[^"']*\1\s*\)$/.test(step)) {
+        return 0;
+      }
+      if (DYN_NSWILD_RE.test(step)) {
+        return -0.25;
+      }
+      if (/^(?:\*|(?:node|text|comment|processing-instruction)\s*\(\s*\))$/.test(step)) {
+        return -0.5;
+      }
+      return 0.5;
+    }
+
+    // Named templates and global variables/params: only the definition with
+    // the highest import precedence survives. A lower-precedence template that
+    // also has a match pattern keeps its template rule and loses its name.
+    // Duplicates at the same precedence are left to libxslt, as natively.
+    function dynResolveDuplicates(root) {
+      const groups = new Map();
+      for (const el of Array.from(root.children)) {
+        const key = dynUniqueKey(el);
+        if (key) {
+          if (!groups.has(key)) {
+            groups.set(key, []);
+          }
+          groups.get(key).push(el);
+        }
+      }
+      for (const els of groups.values()) {
+        if (els.length < 2) {
+          continue;
+        }
+        const top = Math.max(...els.map(dynPrecedence));
+        for (const el of els) {
+          if (dynPrecedence(el) === top) {
+            continue;
+          }
+          if (el.localName === 'template' && el.hasAttribute('match')) {
+            el.removeAttribute('name');
+          } else {
+            el.remove();
+          }
+        }
+      }
+    }
+
+    // Once flattened, every rule has the same import precedence for libxslt.
+    // XSLT compares import precedence before priority, so each template rule
+    // gets an explicit priority "precedence * step + priority", with step
+    // wider than the whole range of priorities in use. A union pattern
+    // without explicit priority is split into one rule per alternative, since
+    // its alternatives can have different default priorities.
+    function dynApplyImportPrecedence(root) {
+      const rules = [];
+      let min = Infinity;
+      let max = -Infinity;
+      for (const el of Array.from(root.children)) {
+        if (!dynIsXsl(el, 'template') || !el.hasAttribute('match')) {
+          continue;
+        }
+        const explicit = el.hasAttribute('priority') ? Number(el.getAttribute('priority')) : NaN;
+        const alternatives = dynSplitUnion(el.getAttribute('match')).map((pattern) => ({
+          pattern,
+          priority: Number.isFinite(explicit) ? explicit : dynDefaultPriority(pattern),
+        }));
+        for (const alt of alternatives) {
+          min = Math.min(min, alt.priority);
+          max = Math.max(max, alt.priority);
+        }
+        rules.push({ el, alternatives });
+      }
+      const step = Math.ceil(max - min) + 1;
+      for (const { el, alternatives } of rules) {
+        const base = dynPrecedence(el) * step - min;
+        if (alternatives.every((alt) => alt.priority === alternatives[0].priority)) {
+          el.setAttribute('priority', String(base + alternatives[0].priority));
+          continue;
+        }
+        alternatives.forEach((alt, i) => {
+          const rule = i === alternatives.length - 1 ? el : el.cloneNode(true);
+          if (rule !== el) {
+            rule.removeAttribute('name');
+            el.parentNode.insertBefore(rule, el);
+          }
+          rule.setAttribute('match', alt.pattern);
+          rule.setAttribute('priority', String(base + alt.priority));
+        });
+      }
+    }
+
+    // ctx.next is a post-order counter: a module gets its import precedence
+    // after all its imports (and the imports of its includes), so it ranks
+    // above them, and a later import ranks above an earlier one. An included
+    // module (isInclude) shares the precedence of the module including it.
+    function dynInlineDoc(doc, baseUrl, seen, depth, report, ctx, isInclude) {
       const root = doc.documentElement;
       if (!root || depth > 16) {
         return;
       }
       const children = Array.from(root.children);
-      const isRef = (el) => el.namespaceURI === DYN_XSLNS && (el.localName === 'include' || el.localName === 'import');
-      if (!children.some(isRef)) {
-        return;
-      }
+      const isRef = (el) => dynIsXsl(el, 'include') || dynIsXsl(el, 'import');
       // Imported content goes before the first own (non-import) element.
-      const ownFirst = children.find((el) => !(el.namespaceURI === DYN_XSLNS && el.localName === 'import')) || null;
-      const ownKeys = new Set(children.map(dynUniqueKey).filter(Boolean));
-      const importedByKey = new Map();
+      const ownFirst = children.find((el) => !dynIsXsl(el, 'import')) || null;
       for (const el of children) {
         if (!isRef(el)) {
           continue;
@@ -542,29 +684,31 @@
         }
         seen.add(href);
         report.inlined.push(href);
-        dynInlineDoc(sub, href, seen, depth + 1, report);
+        if (isImport) {
+          ctx.imports++;
+        }
+        dynInlineDoc(sub, href, seen, depth + 1, report, ctx, !isImport);
         const subRoot = sub.documentElement;
         dynMergePrefixList(subRoot, root, 'exclude-result-prefixes');
         dynMergePrefixList(subRoot, root, 'extension-element-prefixes');
         const anchor = isImport ? ownFirst : el;
         for (const child of Array.from(subRoot.children)) {
-          const key = dynUniqueKey(child);
-          if (isImport && key) {
-            if (ownKeys.has(key)) {
-              continue; // the importing stylesheet wins
-            }
-            if (importedByKey.has(key)) {
-              importedByKey.get(key).remove(); // a later import wins
-            }
+          if (isRef(child)) {
+            continue; // left unresolved (nesting too deep)
           }
           const copy = doc.importNode(child, true);
           dynAdoptNamespaces(subRoot, root, copy);
           root.insertBefore(copy, anchor);
-          if (isImport && key) {
-            importedByKey.set(key, copy);
-          }
         }
         el.remove();
+      }
+      if (!isInclude) {
+        const precedence = String(ctx.next++);
+        for (const el of Array.from(root.children)) {
+          if (el.namespaceURI === DYN_XSLNS && !el.hasAttributeNS(DYN_PRECNS, 'prec')) {
+            el.setAttributeNS(DYN_PRECNS, 'bnzprec:prec', precedence);
+          }
+        }
       }
     }
 
@@ -579,9 +723,18 @@
         }
         const report = window.__bnzXsltInlineReport;
         const before = report.inlined.length + report.failed.length;
-        dynInlineDoc(doc, baseUrl, new Set(), 0, report);
+        const ctx = { next: 0, imports: 0 };
+        dynInlineDoc(doc, baseUrl, new Set(), 0, report, ctx, false);
         if (report.inlined.length + report.failed.length === before) {
           return stylesheetText;
+        }
+        const root = doc.documentElement;
+        if (ctx.imports > 0) {
+          dynResolveDuplicates(root);
+          dynApplyImportPrecedence(root);
+        }
+        for (const el of Array.from(root.children)) {
+          el.removeAttributeNS(DYN_PRECNS, 'prec');
         }
         if (report.inlined.length > 200) report.inlined.splice(0, report.inlined.length - 200);
         if (report.failed.length > 200) report.failed.splice(0, report.failed.length - 200);

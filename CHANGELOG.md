@@ -35,6 +35,12 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 - **Récupération au plus une fois, aussi après un rechargement de repli.** `X.recoverIfMissed`
   lit la garde de rechargement avant de tenter une réouverture : une popup rechargée parce
   que sa réouverture était bloquée n'est plus rouverte à son échec suivant.
+- **Précédence `xsl:import` (DYN-006, #5).** L'aplatissement des imports ne gardait que le
+  départage à priorité égale : un template importé avec `priority="10"` l'emportait sur la
+  règle locale. Les règles reçoivent désormais une priorité explicite qui compare la précédence
+  d'import avant la priorité, imports successifs et imbriqués compris. Les templates nommés et
+  les variables globales sont départagés de la même façon, par nom étendu (URI + nom local) ;
+  un template `name` + `match` écrasé par son nom garde sa règle `match`.
 
 ## [1.0.0.10] - 2026-11-19
 
