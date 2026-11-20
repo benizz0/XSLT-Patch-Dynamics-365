@@ -239,6 +239,56 @@
         report('reopened window flagged (no second recovery)', af3b.__bnzRecovered === true ? 'pass' : 'fail');
         af3b.close();
       }
+
+      // Issue #1 - same late Advanced Find, but the browser refuses the
+      // replacement window (popup blocker, no user activation). The headless
+      // browser runs with --disable-popup-blocking: the refusal is simulated
+      // on the raw open the loader reopens with. The original window must stay
+      // open and fall back to the bounded reload.
+      var af4 = rawOpen.call(window, '/main.aspx?pagetype=advancedfind&case=blocked', 'bnzAF4', POPUP);
+      if (af4) {
+        await waitFor(afResult(af4), 20000).catch(function () { return null; });
+        var calls = [];
+        var hookedOpen = window.open;
+        var savedOriginal = hookedOpen.__bnzOriginal;
+        var realClose = af4.close;
+        af4.close = function () { calls.push('close'); return realClose.apply(af4, arguments); };
+        hookedOpen.__bnzOriginal = function () { calls.push('open'); return null; };
+        var firstDoc = af4.document;
+        try {
+          xhr = new XMLHttpRequest();
+          xhr.open('GET', '/WebResources/bnz_/xsltpatch/loader.js', false);
+          xhr.send(null);
+          af4.eval(xhr.responseText);
+          af4.bnz.XsltPatch.Ribbon.enable();
+        } finally {
+          hookedOpen.__bnzOriginal = savedOriginal;
+        }
+        report('blocked reopen: replacement requested before any close',
+          calls.join(',') === 'open' ? 'pass' : 'fail', calls.join(',') || 'no call');
+        var firstMark = firstDoc.__bnzXsltPatchMark;
+        var journal = window.__bnzXsltPatchState.journal;
+        var blockedAt = -1;
+        var reloadAt = -1;
+        for (var ji = 0; ji < journal.length; ji++) {
+          if (journal[ji].action === 'reopen-blocked' && /case=blocked/.test(journal[ji].url)) blockedAt = ji;
+          if (journal[ji].action === 'reload' && /case=blocked/.test(journal[ji].url)) reloadAt = ji;
+        }
+        report('blocked reopen: falls back to the bounded reload',
+          blockedAt !== -1 && reloadAt > blockedAt && firstMark && firstMark.action === 'reload' ? 'pass' : 'fail',
+          'blocked=' + blockedAt + ' reload=' + reloadAt + ' mark=' + (firstMark ? firstMark.action : 'none'));
+        var reloadedDoc = await waitFor(function () {
+          return af4.document !== firstDoc && af4.document.readyState === 'complete' ? af4.document : null;
+        }, 20000).catch(function () { return null; });
+        report('blocked reopen: original window kept open and reloaded',
+          !af4.closed && reloadedDoc ? 'pass' : 'fail', af4.closed ? 'closed' : (reloadedDoc ? 'reloaded' : 'not reloaded'));
+        var guard = (function () {
+          try { return JSON.parse(af4.sessionStorage.getItem('bnz.xsltpatch.reloaded') || '[]'); } catch (e) { return []; }
+        })();
+        report('blocked reopen: reload guard recorded (recovery at most once)',
+          guard.some(function (u) { return /case=blocked/.test(u); }) ? 'pass' : 'fail', JSON.stringify(guard));
+        af4.close();
+      }
     } catch (e) {
       report('autotest crashed', 'fail', e && e.stack || String(e));
     }

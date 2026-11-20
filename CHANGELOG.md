@@ -7,15 +7,6 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
 ## [Non publié]
 
-### Corrigé
-
-- **Précédence `xsl:import` (DYN-006, #5).** L'aplatissement des imports ne gardait que le
-  départage à priorité égale : un template importé avec `priority="10"` l'emportait sur la
-  règle locale. Les règles reçoivent désormais une priorité explicite qui compare la précédence
-  d'import avant la priorité, imports successifs et imbriqués compris. Les templates nommés et
-  les variables globales sont départagés de la même façon, par nom étendu (URI + nom local) ;
-  un template `name` + `match` écrasé par son nom garde sa règle `match`.
-
 ### Modifié
 
 - **Lisibilité : renommage des noms internes**, sans changement de comportement. Fonctions
@@ -29,6 +20,27 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
   de la marque de document (`mark.action` et ses valeurs), champs JSON de `report()`.
   Le champ `nativeUsable` du rapport garde son nom ; il vaut vrai aussi quand le polyfill
   ou un shim tiers est présent (commentaire ajouté dans le code).
+
+### Corrigé
+
+- **Recherche avancée manquée : la popup disparaissait si sa réouverture était bloquée (#1).**
+  La récupération fermait la fenêtre avant d'ouvrir sa remplaçante. Quand le navigateur
+  refusait `window.open` (bloqueur de popups, récupération lancée hors activation
+  utilisateur), la fenêtre était fermée sans remplacement. `X.reopenPopup` ouvre désormais
+  la remplaçante d'abord, sous un nom temporaire unique (le nom d'origine ferait naviguer la
+  fenêtre existante au lieu d'en créer une neuve), ferme l'ancienne, puis donne son nom à la
+  nouvelle. Si l'ouverture est refusée, ou si l'ancienne fenêtre ne peut pas être fermée, rien
+  n'est fermé, la marque du document n'est pas engagée et le loader passe au rechargement
+  borné (garde `bnz.xsltpatch.reloaded` dans `sessionStorage`).
+- **Récupération au plus une fois, aussi après un rechargement de repli.** `X.recoverIfMissed`
+  lit la garde de rechargement avant de tenter une réouverture : une popup rechargée parce
+  que sa réouverture était bloquée n'est plus rouverte à son échec suivant.
+- **Précédence `xsl:import` (DYN-006, #5).** L'aplatissement des imports ne gardait que le
+  départage à priorité égale : un template importé avec `priority="10"` l'emportait sur la
+  règle locale. Les règles reçoivent désormais une priorité explicite qui compare la précédence
+  d'import avant la priorité, imports successifs et imbriqués compris. Les templates nommés et
+  les variables globales sont départagés de la même façon, par nom étendu (URI + nom local) ;
+  un template `name` + `match` écrasé par son nom garde sa règle `match`.
 
 ## [1.0.0.10] - 2026-11-19
 

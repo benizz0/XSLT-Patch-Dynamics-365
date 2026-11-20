@@ -149,9 +149,8 @@
         return false;
       }
     } catch (e) { /* ignore */ }
-    if (win === win.top && X.reopenPopup(win, mark)) {
-      return true;
-    }
+    // Read the reload guard before trying a reopen: a popup reloaded because
+    // its reopen was blocked must not be reopened on its next miss.
     var session = null;
     var reloadedUrls = [];
     try {
@@ -165,6 +164,9 @@
         X.addJournalEntry('reload-skipped', win, 'already reloaded once');
         return false;
       }
+    }
+    if (win === win.top && X.reopenPopup(win, mark)) {
+      return true;
     }
     if (!session) {
       return false; // no guard available: never risk a reload loop
@@ -187,8 +189,15 @@
     }
   };
 
-  // Closes `win` and opens the same URL again from its opener, with the same
-  // name and geometry. The new window is watched from its about:blank state.
+  // Opens the same URL again from `win`'s opener, with the same geometry, then
+  // closes `win` and gives its name to the new window. The new window is
+  // watched from its about:blank state.
+  // The replacement is opened under a unique temporary name: `win`'s own name
+  // would make the browser navigate `win` itself (named window reuse) instead
+  // of creating a fresh Window. When the browser refuses the new window
+  // (popup blocker, no user activation) or `win` cannot be closed, `win` is
+  // left open, the mark untouched, and false is returned: the caller falls
+  // back to the bounded reload.
   X.reopenPopup = function (win, mark) {
     var url = X.safeUrl(win);
     var opener = null;
@@ -203,23 +212,46 @@
       features = 'width=' + win.outerWidth + ',height=' + win.outerHeight +
         ',left=' + win.screenX + ',top=' + win.screenY + ',resizable=yes,scrollbars=yes';
     } catch (e) { /* ignore */ }
+    var tempName = 'bnzXsltPatchRecover' + new Date().getTime() + '_' + Math.floor(Math.random() * 1000000);
+    var reopened = null;
     try {
-      mark.action = 'reload';
       var originalOpen = openFrom.open.__bnzOriginal || openFrom.open;
-      win.close();
-      var reopened = originalOpen.call(openFrom, url, name, features);
-      if (!reopened) {
-        X.addJournalEntry('reopen-blocked', win, url);
-        return false;
-      }
-      reopened.__bnzRecovered = true;
-      X.addJournalEntry('reopen', null, url);
-      X.watchPopup(reopened, url);
-      return true;
+      reopened = originalOpen.call(openFrom, url, tempName, features);
     } catch (e) {
       X.warn('reopen failed', url, e);
       return false;
     }
+    var usable = false;
+    try {
+      usable = !!reopened && reopened !== win && !reopened.closed;
+    } catch (e) { /* ignore */ }
+    if (!usable) {
+      X.addJournalEntry('reopen-blocked', win, url);
+      return false;
+    }
+    var closed = false;
+    try {
+      win.close();
+      closed = win.closed === true;
+    } catch (e) {
+      X.warn('close failed', url, e);
+    }
+    if (!closed) {
+      // Not script-closable: keep the original, drop the replacement.
+      try {
+        reopened.close();
+      } catch (e) { /* ignore */ }
+      X.addJournalEntry('reopen-close-refused', win, url);
+      return false;
+    }
+    mark.action = 'reload';
+    try {
+      reopened.__bnzRecovered = true;
+      reopened.name = name;
+    } catch (e) { /* ignore */ }
+    X.addJournalEntry('reopen', null, url);
+    X.watchPopup(reopened, url);
+    return true;
   };
 
   // Per loader copy, per document: hooks and observers.
