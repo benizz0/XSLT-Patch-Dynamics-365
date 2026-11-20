@@ -69,6 +69,22 @@
         JSON.stringify(window.__bnzXsltPolyfillLoaded));
       report('AMD define() not called (DYN-001)', window.__amdCalls === 0 ? 'pass' : 'fail', 'calls=' + window.__amdCalls);
 
+      // Issue #15 - DYN-010: upstream's window exports don't overwrite the page.
+      var pageShowError = (function () {
+        try { return window.showError(); } catch (e) { return 'ERROR: ' + e.message; }
+      })();
+      report('page showError kept after install (DYN-010)',
+        pageShowError === 'page showError' && document.title.indexOf('XSLT Patch') === 0 ? 'pass' : 'fail', pageShowError);
+      var namedElement = document.getElementById('loadXmlWithXsltFromBytes');
+      report('named element global not shadowed (DYN-010)',
+        window.loadXmlWithXsltFromBytes === namedElement ? 'pass' : 'fail', String(window.loadXmlWithXsltFromBytes));
+      report('free helper name keeps upstream export (DYN-010)',
+        typeof window.loadXmlWithXsltFromUrl === 'function' ? 'pass' : 'fail', typeof window.loadXmlWithXsltFromUrl);
+      var nativeCreate = /\[native code\]/.test(Function.prototype.toString.call(Document.prototype.createElement)) &&
+        !Object.prototype.hasOwnProperty.call(document, 'createElement');
+      report('createElement left native on an HTML page (DYN-010)', nativeCreate ? 'pass' : 'fail',
+        JSON.stringify(window.__bnzXsltPolyfillLoaded.restored));
+
       // 1.0.0.3 - DYN-006: synchronous transform with xsl:import + xsl:include.
       var includeResult = (function () { try { return harnessRunIncludeTransform('Inc'); } catch (e) { return 'ERROR: ' + e.message; } })();
       check('sync xsl:include + xsl:import (DYN-006)', includeResult, 'Inc');
