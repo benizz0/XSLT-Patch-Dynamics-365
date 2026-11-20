@@ -10,6 +10,32 @@ extension ni poste à configurer. Le polyfill est un fork local de
 [mfreed7/xslt_polyfill](https://github.com/mfreed7/xslt_polyfill) (libxslt + libxml2
 compilés en WebAssembly) avec des correctifs propres à Dynamics.
 
+## Installation
+
+Télécharger la solution depuis la **[dernière release](https://github.com/benizz0/XSLT-Patch-Dynamics-365/releases/latest)**.
+
+Chaque release publie une solution gérée par version de Dynamics, nommée
+`XSLT_Patch_<version>_crm<cible>_managed.zip`. La version y est écrite avec des `_`
+(`1_0_0_10` pour `1.0.0.10`), et `crm<cible>` donne la version de Dynamics sans le point :
+
+| Asset | Pour |
+|-------|------|
+| `..._crm82_managed.zip` | CRM 8.2 |
+| `..._crm91_managed.zip` | Dynamics 9.0 et 9.1 on-premise |
+| `..._crm92_managed.zip` | Dynamics 9.0 à 9.2, online et on-premise |
+
+Le paquet `crm82` s'importe aussi en 9.x, mais sans le bouton de la barre globale UCI :
+en 9.x, prendre `crm91` ou `crm92`.
+
+1. Paramètres > Solutions > Importer, choisir le zip de la bonne cible.
+2. Publier toutes les personnalisations.
+3. Vérifier : ouvrir une grille, puis lancer un rapport. Dans la console (F12) :
+   `bnz.XsltPatch.diagnostics()`.
+
+La langue de base de la solution est 1036 (français). Pour une org dont la langue de base
+est différente, changer `baseLanguage` dans `solution/solution.config.json` et
+[construire la solution](#construire-la-solution).
+
 ## Fonctionnement
 
 Un bouton « XSLT Patch » est ajouté au ribbon applicatif : grilles, formulaires et
@@ -108,15 +134,7 @@ web resources. CRM 8.2 répond 500 à un `ver` non entier : le loader du paquet 
 version sous forme d'entier (`1.0.0.10` donne `1000010`, clé de cible
 `webResourceVerFormat`).
 
-## Installer
-
-1. Paramètres > Solutions > Importer, choisir le zip de la bonne cible.
-2. Publier toutes les personnalisations.
-3. Vérifier : ouvrir une grille, puis lancer un rapport. Dans la console (F12) :
-   `bnz.XsltPatch.diagnostics()`.
-
-La langue de base de la solution est 1036 (français). Pour une org dont la langue de base
-est différente, changer `baseLanguage` dans `solution/solution.config.json` avant le build.
+Une solution construite localement s'importe comme indiqué dans [Installation](#installation).
 
 ## Configuration et diagnostic
 
