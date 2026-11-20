@@ -20,6 +20,8 @@
     window.__amdCalls = 0;
     window.define = function () { window.__amdCalls++; throw new Error('Mismatched anonymous define() module'); };
     window.define.amd = {};
+    // Page global with a name upstream exports: must survive the install (DYN-010).
+    window.showError = function harnessShowError() { return 'page showError'; };
   </script>
   <script src="/WebResources/bnz_/xsltpatch/loader.js"></script>
   <script src="/legacy-code.js"></script>
@@ -36,6 +38,8 @@
   <h2>Résultats</h2>
   <pre id="results"></pre>
   <div id="frames"></div>
+  <!-- Named element: window.loadXmlWithXsltFromBytes is this div (DYN-010). -->
+  <div id="loadXmlWithXsltFromBytes" hidden></div>
   <script src="/harness.js"></script>
 </body>
 </html>

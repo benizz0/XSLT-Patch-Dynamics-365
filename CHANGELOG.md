@@ -23,6 +23,15 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
 ### Corrigé
 
+- **Fonctions globales de la page écrasées par le polyfill (DYN-010, #15).** Upstream exporte
+  `showError`, `parseAndReplaceCurrentXMLDoc`, `loadXmlWithXsltFromBytes`,
+  `loadXmlWithXsltFromUrl` et `loadXmlUrlWithXsltWhenReady` sur `window` sans vérifier que le
+  nom est libre. Une page avec son propre `showError` appelait ensuite celui d'upstream, qui
+  vide le document. Le wrapper du polyfill relève les globales de la page avant
+  l'installation et les remet après. Un nom libre garde l'export upstream, sauf `showError`
+  (hors API upstream), qui est retiré. Sur une page HTML, `Document.prototype.createElement`
+  et `document.createElement` redeviennent natifs : le patch d'upstream ne sert qu'au
+  document XML polyfillé. Non reproduit sur une org : correctif préventif.
 - **Recherche avancée manquée : la popup disparaissait si sa réouverture était bloquée (#1).**
   La récupération fermait la fenêtre avant d'ouvrir sa remplaçante. Quand le navigateur
   refusait `window.open` (bloqueur de popups, récupération lancée hors activation

@@ -37,4 +37,25 @@
     xsltPolyfillQuiet: !loaderOptions.debug
   };
 
+  // DYN-010: upstream assigns its helpers to window unconditionally, and patches
+  // createElement even on HTML pages. Snapshot what the page has before the
+  // vendor code runs; postlude.js puts the page's own members back.
+  // Names are prefixed: the emscripten glue shares this function scope.
+  var bnzPageMembers = {
+    globals: {},
+    protoCreateElement: null,
+    docCreateElement: null
+  };
+  ['parseAndReplaceCurrentXMLDoc', 'loadXmlWithXsltFromBytes', 'loadXmlWithXsltFromUrl',
+    'loadXmlUrlWithXsltWhenReady', 'showError'].forEach(function (name) {
+    var own = Object.getOwnPropertyDescriptor(window, name);
+    // `in` also sees names owned up the prototype chain (named elements on
+    // WindowProperties), without calling any getter.
+    bnzPageMembers.globals[name] = { own: own || null, taken: !!own || name in window };
+  });
+  try {
+    bnzPageMembers.protoCreateElement = Object.getOwnPropertyDescriptor(Document.prototype, 'createElement') || null;
+    bnzPageMembers.docCreateElement = Object.getOwnPropertyDescriptor(document, 'createElement') || null;
+  } catch (e) { /* no Document interface: nothing to restore */ }
+
   // ---- vendor/xslt_polyfill/dist/xslt-wasm.js ----
