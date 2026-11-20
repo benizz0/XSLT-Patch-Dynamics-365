@@ -1,5 +1,5 @@
   // ---- 20-log ----
-  X.PREFIX = '[bnz.XsltPatch]';
+  X.LOG_PREFIX = '[bnz.XsltPatch]';
 
   X.safeUrl = function (win) {
     try {
@@ -10,7 +10,7 @@
   };
 
   // Keeps a bounded journal on the shared state (read by diagnostics).
-  X.record = function (action, win, detail) {
+  X.addJournalEntry = function (action, win, detail) {
     var state = X.state;
     if (!state) {
       return;
@@ -33,7 +33,7 @@
       return;
     }
     var args = Array.prototype.slice.call(arguments);
-    args.unshift(X.PREFIX);
+    args.unshift(X.LOG_PREFIX);
     loaderWindow.console.log.apply(loaderWindow.console, args);
   };
 
@@ -42,6 +42,6 @@
       return;
     }
     var args = Array.prototype.slice.call(arguments);
-    args.unshift(X.PREFIX);
+    args.unshift(X.LOG_PREFIX);
     (loaderWindow.console.warn || loaderWindow.console.log).apply(loaderWindow.console, args);
   };

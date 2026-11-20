@@ -48,11 +48,11 @@
       var probe = (function () {
         try {
           var append = Node.prototype.appendChild.__bnzOriginal || Node.prototype.appendChild;
-          var fr = document.createElement('iframe');
-          append.call(document.body, fr);
-          var P = fr.contentWindow.XSLTProcessor;
-          var kind = P ? (P.__bnzStub ? 'stub' : 'native') : 'none';
-          fr.parentNode.removeChild(fr);
+          var blankFrame = document.createElement('iframe');
+          append.call(document.body, blankFrame);
+          var Processor = blankFrame.contentWindow.XSLTProcessor;
+          var kind = Processor ? (Processor.__bnzStub ? 'stub' : 'native') : 'none';
+          blankFrame.parentNode.removeChild(blankFrame);
           return kind;
         } catch (e) {
           return 'error ' + e.message;
@@ -70,10 +70,10 @@
       report('AMD define() not called (DYN-001)', window.__amdCalls === 0 ? 'pass' : 'fail', 'calls=' + window.__amdCalls);
 
       // 1.0.0.3 - DYN-006: synchronous transform with xsl:import + xsl:include.
-      var inc = (function () { try { return harnessRunIncludeTransform('Inc'); } catch (e) { return 'ERROR: ' + e.message; } })();
-      check('sync xsl:include + xsl:import (DYN-006)', inc, 'Inc');
+      var includeResult = (function () { try { return harnessRunIncludeTransform('Inc'); } catch (e) { return 'ERROR: ' + e.message; } })();
+      check('sync xsl:include + xsl:import (DYN-006)', includeResult, 'Inc');
       report('import precedence + inlined namespace (math:max)',
-        /max=1200$/.test(inc) && inc.indexOf('BASE') === -1 ? 'pass' : 'fail', inc);
+        /max=1200$/.test(includeResult) && includeResult.indexOf('BASE') === -1 ? 'pass' : 'fail', includeResult);
 
       // document() stays unsupported synchronously: clean error, and the Wasm
       // module must keep working for the next transform.
@@ -85,13 +85,14 @@
       var errs = window.__bnzXsltPolyfillLoaded && window.__bnzXsltPolyfillLoaded.errors || [];
       report('XSLT error traced (DYN-007)', errs.length >= 1 && /with-document\.xsl/.test(errs[errs.length - 1].stylesheet) ? 'pass' : 'fail',
         errs.length ? errs[errs.length - 1].stylesheet + ' | ' + errs[errs.length - 1].error : 'none');
-      var rep = JSON.parse(bnz.XsltPatch.report());
-      report('report() lists xslt errors', rep.xsltErrors && rep.xsltErrors.length >= 1 ? 'pass' : 'fail', 'errors=' + (rep.xsltErrors || []).length);
+      var parsedReport = JSON.parse(bnz.XsltPatch.report());
+      report('report() lists xslt errors', parsedReport.xsltErrors && parsedReport.xsltErrors.length >= 1 ? 'pass' : 'fail',
+        'errors=' + (parsedReport.xsltErrors || []).length);
 
       // 1.0.0.5 - DYN-009: Advanced Find field list (cachemanager.js _getFieldList)
       // transforms into the input XMLDocument and reads optionsXML (case
       // sensitive) from the serialized result.
-      var fl = (function () {
+      var fieldList = (function () {
         try {
           var parser = new DOMParser();
           var xsl = parser.parseFromString(
@@ -104,9 +105,9 @@
           var input = parser.parseFromString(
             "<fields><result value='type' datatype='picklist' optionsXML='&lt;options&gt;&lt;option value=\"1\"&gt;A&lt;/option&gt;&lt;/options&gt;'>Type</result></fields>",
             'text/xml');
-          var p = new XSLTProcessor();
-          p.importStylesheet(xsl);
-          var out = new XMLSerializer().serializeToString(p.transformToFragment(input, input));
+          var processor = new XSLTProcessor();
+          processor.importStylesheet(xsl);
+          var out = new XMLSerializer().serializeToString(processor.transformToFragment(input, input));
           var cache = parser.parseFromString('<fields>' + out + '</fields>', 'text/xml');
           var node = cache.getElementsByTagName('option')[0];
           var attr = node && node.attributes.getNamedItem('optionsXML');
@@ -118,7 +119,7 @@
           return { out: 'ERROR: ' + e.message, ok: false };
         }
       })();
-      report('fragment into XMLDocument keeps attribute case (DYN-009)', fl.ok ? 'pass' : 'fail', fl.out);
+      report('fragment into XMLDocument keeps attribute case (DYN-009)', fieldList.ok ? 'pass' : 'fail', fieldList.out);
       var htmlFrag = (function () {
         try {
           var parser = new DOMParser();
@@ -126,34 +127,34 @@
             "<xsl:stylesheet xmlns:xsl='http://www.w3.org/1999/XSL/Transform' version='1.0'>" +
             "<xsl:output method='xml' omit-xml-declaration='yes'/>" +
             "<xsl:template match='/'><span dataX='1'>x</span></xsl:template></xsl:stylesheet>", 'text/xml');
-          var p = new XSLTProcessor();
-          p.importStylesheet(xsl);
-          var el = p.transformToFragment(parser.parseFromString('<a/>', 'text/xml'), document).firstChild;
-          return el instanceof HTMLSpanElement && el.getAttribute('datax') === '1';
+          var processor = new XSLTProcessor();
+          processor.importStylesheet(xsl);
+          var span = processor.transformToFragment(parser.parseFromString('<a/>', 'text/xml'), document).firstChild;
+          return span instanceof HTMLSpanElement && span.getAttribute('datax') === '1';
         } catch (e) {
           return false;
         }
       })();
       report('fragment into the HTML page stays HTML (upstream behaviour)', htmlFrag ? 'pass' : 'fail');
 
-      var f = addFrame();
-      await waitFor(function () { return f.contentWindow && f.contentWindow.harnessRunTransform && f.contentDocument.readyState === 'complete'; }, 10000);
-      await waitFor(function () { return f.contentWindow.XSLTProcessor; }, 5000);
-      check('dynamic iframe transform', f.contentWindow.harnessRunTransform('Frame'), 'Frame');
+      var frame = addFrame();
+      await waitFor(function () { return frame.contentWindow && frame.contentWindow.harnessRunTransform && frame.contentDocument.readyState === 'complete'; }, 10000);
+      await waitFor(function () { return frame.contentWindow.XSLTProcessor; }, 5000);
+      check('dynamic iframe transform', frame.contentWindow.harnessRunTransform('Frame'), 'Frame');
 
       var popup = window.open('/crmreports/viewer/viewer.html', 'bnzReport', 'width=700,height=300');
       if (!popup) {
         report('SSRS popup', 'skip', 'window.open blocked');
       } else {
-        var r = await waitFor(function () { return popup.__viewerResult; }, 20000).catch(function (e) { return 'ERROR: ' + e.message; });
-        check('SSRS popup transform (eager)', r, 'SSRS');
+        var viewerResult = await waitFor(function () { return popup.__viewerResult; }, 20000).catch(function (e) { return 'ERROR: ' + e.message; });
+        check('SSRS popup transform (eager)', viewerResult, 'SSRS');
         var mark = popup.document.__bnzXsltPatchMark;
         report('SSRS popup marked eager', mark && mark.action === 'eager' ? 'pass' : 'fail', mark ? mark.action : 'no mark');
         popup.close();
       }
 
       var POPUP = 'width=700,height=300';
-      var afResult = function (w) { return function () { return w.__afResult; }; };
+      var afResult = function (win) { return function () { return win.__afResult; }; };
 
       // 1.0.0.1 - Advanced Find opened through the hooked window.open: XSLT is
       // called while AdvFind.aspx parses (inside an iframe of the popup).
@@ -168,29 +169,31 @@
         check('advanced find "ribbon" stylesheet with includes', af.__afRibbon, 'Ribbon');
         // 1.0.0.4 - /_static/css/1036/cui.css is a 404: fallback to 1033.
         var hidden = await waitFor(function () {
-          var el = af.document.getElementById('ribboninstruction');
-          return el && af.getComputedStyle(el).top === '-2000px' ? el : null;
+          var instruction = af.document.getElementById('ribboninstruction');
+          return instruction && af.getComputedStyle(instruction).top === '-2000px' ? instruction : null;
         }, 10000).catch(function () { return null; });
-        var fb = af.document.querySelector('link[data-bnz-css-fallback]');
-        report('cui.css 404 -> 1033 fallback (ribbon styled)', hidden && fb && /\/_static\/css\/1033\/cui\.css\?ver=1$/.test(fb.href) ? 'pass' : 'fail',
-          fb ? fb.getAttribute('href') : 'no fallback link');
+        var fallbackLink = af.document.querySelector('link[data-bnz-css-fallback]');
+        report('cui.css 404 -> 1033 fallback (ribbon styled)',
+          hidden && fallbackLink && /\/_static\/css\/1033\/cui\.css\?ver=1$/.test(fallbackLink.href) ? 'pass' : 'fail',
+          fallbackLink ? fallbackLink.getAttribute('href') : 'no fallback link');
         report('cui.css fallback added once',
           af.document.querySelectorAll('link[data-bnz-css-fallback]').length === 1 ? 'pass' : 'fail');
         af.close();
       }
 
       // 1.0.0.1 - UCI -> "Advanced Settings" (settings only, no ribbon) -> Advanced Find.
-      var s = window.open('/main.aspx?settingsonly=true', 'bnzSettings', POPUP);
-      if (s) {
-        await waitFor(function () { return s.bnz && s.bnz.XsltPatch && s.bnz.XsltPatch.isLoader && s.open.__bnzHooked; }, 10000)
-          .catch(function () { return null; });
+      var settings = window.open('/main.aspx?settingsonly=true', 'bnzSettings', POPUP);
+      if (settings) {
+        await waitFor(function () {
+          return settings.bnz && settings.bnz.XsltPatch && settings.bnz.XsltPatch.isLoader && settings.open.__bnzHooked;
+        }, 10000).catch(function () { return null; });
         report('settings-only window: window.open hooked by its own loader copy',
-          s.open.__bnzHooked && s.open instanceof s.Function ? 'pass' : 'fail');
-        var af2 = s.open('/main.aspx?pagetype=advancedfind', 'bnzAF2', POPUP);
+          settings.open.__bnzHooked && settings.open instanceof settings.Function ? 'pass' : 'fail');
+        var af2 = settings.open('/main.aspx?pagetype=advancedfind', 'bnzAF2', POPUP);
         check('advanced find opened from settings only',
           await waitFor(afResult(af2), 20000).catch(function (e) { return 'ERROR: ' + e.message; }), 'AF');
         af2.close();
-        s.close();
+        settings.close();
       }
 
       // 1.0.0.1 - Advanced Find opened behind the patch's back (unhooked open):

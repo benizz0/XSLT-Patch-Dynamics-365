@@ -21,12 +21,12 @@
   // native implementation, our polyfill, or a third-party shim.
   X.isXsltUsable = function (win) {
     try {
-      var P = win.XSLTProcessor;
-      if (typeof P !== 'function' || P.__bnzStub) {
+      var Processor = win.XSLTProcessor;
+      if (typeof Processor !== 'function' || Processor.__bnzStub) {
         return false;
       }
       // Chrome without XSLT may keep a constructor that throws.
-      var probe = new P();
+      var probe = new Processor();
       return !!probe;
     } catch (e) {
       return false;
@@ -53,14 +53,14 @@
     }
     var nodes = doc.childNodes;
     for (var i = 0; i < nodes.length; i++) {
-      var n = nodes[i];
-      if (n.nodeType === 7 && n.target === 'xml-stylesheet') {
-        var data = String(n.data || '');
+      var node = nodes[i];
+      if (node.nodeType === 7 && node.target === 'xml-stylesheet') {
+        var data = String(node.data || '');
         if (/alternate\s*=\s*["']yes["']/i.test(data)) {
           continue;
         }
-        var m = /type\s*=\s*["']([^"']+)["']/i.exec(data);
-        var type = m ? m[1].toLowerCase() : '';
+        var typeMatch = /type\s*=\s*["']([^"']+)["']/i.exec(data);
+        var type = typeMatch ? typeMatch[1].toLowerCase() : '';
         for (var j = 0; j < X.XSL_PI_TYPES.length; j++) {
           if (X.XSL_PI_TYPES[j] === type) {
             return true;
@@ -79,8 +79,8 @@
       }
       var islands = doc.querySelectorAll('xml, script[type="text/xml"], script[type="text/xsl"]');
       for (var i = 0; i < islands.length; i++) {
-        var txt = islands[i].textContent || islands[i].innerHTML || '';
-        if (txt.indexOf(X.XSL_NS) !== -1) {
+        var text = islands[i].textContent || islands[i].innerHTML || '';
+        if (text.indexOf(X.XSL_NS) !== -1) {
           return true;
         }
       }
@@ -89,10 +89,10 @@
   };
 
   X.matchesAny = function (url, patterns) {
-    var u = String(url || '').toLowerCase();
+    var lowerUrl = String(url || '').toLowerCase();
     patterns = patterns || [];
     for (var i = 0; i < patterns.length; i++) {
-      if (patterns[i] && u.indexOf(String(patterns[i]).toLowerCase()) !== -1) {
+      if (patterns[i] && lowerUrl.indexOf(String(patterns[i]).toLowerCase()) !== -1) {
         return true;
       }
     }
@@ -130,10 +130,11 @@
       advancedFind: X.isAdvancedFindUrl(url)
     };
     return {
-      nativeUsable: usable,
+      // Native implementation, our polyfill or a third-party shim.
+      xsltUsable: usable,
       polyfilled: X.isPolyfilled(win),
       needsPolyfill: X.needsPolyfill(win, usable),
-      eager: signals.xmlStylesheetPI || signals.xslElements || signals.ssrs || signals.advancedFind,
+      needsEagerInstall: signals.xmlStylesheetPI || signals.xslElements || signals.ssrs || signals.advancedFind,
       signals: signals,
       readyState: doc.readyState
     };

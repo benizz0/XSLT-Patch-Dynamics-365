@@ -19,23 +19,23 @@ import { fileURLToPath } from 'node:url';
 import { createZip } from './lib/zip.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const P = (...p) => path.join(ROOT, ...p);
-const VENDOR = P('vendor', 'xslt_polyfill');
+const fromRoot = (...segments) => path.join(ROOT, ...segments);
+const VENDOR = fromRoot('vendor', 'xslt_polyfill');
 
 // ---------- args ----------
 function parseArgs(argv) {
   const args = { targets: [], version: null, minify: true, check: false, managed: false };
   for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    if (a === '--target') args.targets.push(argv[++i]);
-    else if (a === '--version') args.version = argv[++i];
-    else if (a === '--no-minify') args.minify = false;
-    else if (a === '--check') args.check = true;
-    else if (a === '--managed') args.managed = true;
-    else if (a === '--help' || a === '-h') {
+    const arg = argv[i];
+    if (arg === '--target') args.targets.push(argv[++i]);
+    else if (arg === '--version') args.version = argv[++i];
+    else if (arg === '--no-minify') args.minify = false;
+    else if (arg === '--check') args.check = true;
+    else if (arg === '--managed') args.managed = true;
+    else if (arg === '--help' || arg === '-h') {
       console.log(fs.readFileSync(fileURLToPath(import.meta.url), 'utf8').split('\n').slice(1, 16).join('\n'));
       process.exit(0);
-    } else throw new Error(`Unknown argument: ${a}`);
+    } else throw new Error(`Unknown argument: ${arg}`);
   }
   return args;
 }
@@ -49,12 +49,11 @@ const write = (f, content) => {
 const xmlEscape = (s) =>
   String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-function fill(template, tokens, label) {
-  const out = template.replace(/\{\{([A-Z0-9_]+)\}\}/g, (m, key) => {
+function fillTokens(template, tokens, label) {
+  return template.replace(/\{\{([A-Z0-9_]+)\}\}/g, (token, key) => {
     if (!(key in tokens)) throw new Error(`${label}: unknown token {{${key}}}`);
     return tokens[key];
   });
-  return out;
 }
 
 function assert(cond, msg) {
@@ -63,23 +62,24 @@ function assert(cond, msg) {
 
 // ---------- web resources ----------
 function buildLoader(tokens) {
-  const dir = P('src', 'loader');
-  const parts = fs.readdirSync(dir).filter((f) => f.endsWith('.js')).sort();
-  const source = parts.map((f) => fill(read(path.join(dir, f)), tokens, `src/loader/${f}`)).join('\n');
+  const dir = fromRoot('src', 'loader');
+  const partFiles = fs.readdirSync(dir).filter((f) => f.endsWith('.js')).sort();
+  const source = partFiles.map((f) => fillTokens(read(path.join(dir, f)), tokens, `src/loader/${f}`)).join('\n');
   new vm.Script(source, { filename: 'loader.js' }); // syntax check
   // The loader must stay ES5 (IE11 parses it on CRM 8.2 and must no-op).
-  const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '').replace(/'(?:[^'\\\n]|\\.)*'/g, "''");
-  const es6 = /\b(let|const|class)\s|=>|`|\.\.\.[A-Za-z_$]/.exec(code);
-  assert(!es6, `loader is not ES5: found "${es6 && es6[0]}"`);
+  // Comments and string contents are removed first so they cannot match.
+  const codeOnly = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '').replace(/'(?:[^'\\\n]|\\.)*'/g, "''");
+  const es6Match = /\b(let|const|class)\s|=>|`|\.\.\.[A-Za-z_$]/.exec(codeOnly);
+  assert(!es6Match, `loader is not ES5: found "${es6Match && es6Match[0]}"`);
   return source;
 }
 
 async function buildPolyfill(tokens, minify) {
   const glue = read(path.join(VENDOR, 'dist', 'xslt-wasm.js'));
-  const src = read(path.join(VENDOR, 'src', 'xslt-polyfill-src.js'));
-  const prelude = fill(read(P('src', 'polyfill', 'prelude.js')), tokens, 'prelude.js');
-  const postlude = fill(read(P('src', 'polyfill', 'postlude.js')), tokens, 'postlude.js');
-  const combined = [prelude, glue, '\n  // ---- vendor/xslt_polyfill/src/xslt-polyfill-src.js ----', src, postlude].join('\n');
+  const polyfillSource = read(path.join(VENDOR, 'src', 'xslt-polyfill-src.js'));
+  const prelude = fillTokens(read(fromRoot('src', 'polyfill', 'prelude.js')), tokens, 'prelude.js');
+  const postlude = fillTokens(read(fromRoot('src', 'polyfill', 'postlude.js')), tokens, 'postlude.js');
+  const combined = [prelude, glue, '\n  // ---- vendor/xslt_polyfill/src/xslt-polyfill-src.js ----', polyfillSource, postlude].join('\n');
   if (!minify) {
     new vm.Script(combined, { filename: 'xslt-polyfill.js' });
     return combined;
@@ -96,8 +96,8 @@ async function buildPolyfill(tokens, minify) {
 }
 
 function polyfillVersion() {
-  const m = /const xsltPolyfillVersion = '([^']+)'/.exec(read(path.join(VENDOR, 'src', 'xslt-polyfill-src.js')));
-  return m ? m[1] : 'unknown';
+  const versionMatch = /const xsltPolyfillVersion = '([^']+)'/.exec(read(path.join(VENDOR, 'src', 'xslt-polyfill-src.js')));
+  return versionMatch ? versionMatch[1] : 'unknown';
 }
 
 // CRM 8.2 refuses any other character at import (0x8004F117, #9): "Web resource
@@ -107,12 +107,12 @@ function polyfillVersion() {
 const WEB_RESOURCE_NAME = /^[A-Za-z0-9_.]+(?:\/[A-Za-z0-9_.]+)*$/;
 const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-function checkWebResources(cfg) {
-  const prefix = `${cfg.publisher.customizationPrefix}_/`;
-  const retired = cfg.retiredWebResources || [];
+function checkWebResources(config) {
+  const prefix = `${config.publisher.customizationPrefix}_/`;
+  const retired = config.retiredWebResources || [];
   const ids = new Set();
   const names = new Set();
-  for (const wr of cfg.webResources) {
+  for (const wr of config.webResources) {
     assert(WEB_RESOURCE_NAME.test(wr.name), `Web resource name refused by CRM 8.2 (letters, digits, "_", "." and single "/" only): ${wr.name}`);
     assert(wr.name.startsWith(prefix), `Web resource name must start with "${prefix}": ${wr.name}`);
     assert(GUID.test(wr.id), `Web resource ${wr.name}: id must be a lower-case GUID, got ${wr.id}`);
@@ -121,19 +121,19 @@ function checkWebResources(cfg) {
     ids.add(wr.id);
     names.add(wr.name.toLowerCase());
   }
-  for (const r of retired) {
-    assert(!ids.has(r.id), `Web resource id ${r.id} is retired (${r.name}), give it a new GUID`);
-    assert(!names.has(r.name.toLowerCase()), `Web resource name ${r.name} is retired, pick another name`);
+  for (const retiredWr of retired) {
+    assert(!ids.has(retiredWr.id), `Web resource id ${retiredWr.id} is retired (${retiredWr.name}), give it a new GUID`);
+    assert(!names.has(retiredWr.name.toLowerCase()), `Web resource name ${retiredWr.name} is retired, pick another name`);
   }
 }
 
 // ---------- solution xml ----------
-function webResourceFileName(name) {
+function webResourcePath(name) {
   return `/WebResources/${name}`;
 }
 
-function webResourcesXml(cfg) {
-  return cfg.webResources
+function webResourcesXml(config) {
+  return config.webResources
     .map(
       (wr) => `    <WebResource>
       <WebResourceId>{${wr.id}}</WebResourceId>
@@ -147,15 +147,15 @@ function webResourcesXml(cfg) {
       <IsCustomizable>1</IsCustomizable>
       <CanBeDeleted>1</CanBeDeleted>
       <IsHidden>0</IsHidden>
-      <FileName>${xmlEscape(webResourceFileName(wr.name))}</FileName>
+      <FileName>${xmlEscape(webResourcePath(wr.name))}</FileName>
     </WebResource>`
     )
     .join('\n');
 }
 
-function rootComponentsXml(cfg, target) {
+function rootComponentsXml(config, target) {
   const behavior = target.rootComponentBehavior ? ' behavior="0"' : '';
-  const lines = cfg.webResources.map(
+  const lines = config.webResources.map(
     (wr) => `      <RootComponent type="61" schemaName="${xmlEscape(wr.name)}"${behavior} />`
   );
   // type 50 = application ribbon (RibbonDiffXml without entity).
@@ -164,22 +164,22 @@ function rootComponentsXml(cfg, target) {
 }
 
 function contentTypesXml(fileNames) {
-  const exts = new Set(['xml']);
-  const overrides = [];
-  for (const f of fileNames) {
-    const base = f.split('/').pop();
-    const dot = base.lastIndexOf('.');
-    if (dot > 0) exts.add(base.slice(dot + 1).toLowerCase());
-    else overrides.push(f);
+  const extensions = new Set(['xml']);
+  const extensionless = [];
+  for (const fileName of fileNames) {
+    const baseName = fileName.split('/').pop();
+    const dot = baseName.lastIndexOf('.');
+    if (dot > 0) extensions.add(baseName.slice(dot + 1).toLowerCase());
+    else extensionless.push(fileName);
   }
-  const defaults = [...exts]
+  const defaultsXml = [...extensions]
     .sort()
-    .map((e) => `<Default Extension="${e}" ContentType="application/octet-stream" />`)
+    .map((ext) => `<Default Extension="${ext}" ContentType="application/octet-stream" />`)
     .join('');
-  const ov = overrides
-    .map((f) => `<Override PartName="/${xmlEscape(f)}" ContentType="application/octet-stream" />`)
+  const overridesXml = extensionless
+    .map((fileName) => `<Override PartName="/${xmlEscape(fileName)}" ContentType="application/octet-stream" />`)
     .join('');
-  return `﻿<?xml version="1.0" encoding="utf-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">${defaults}${ov}</Types>`;
+  return `﻿<?xml version="1.0" encoding="utf-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">${defaultsXml}${overridesXml}</Types>`;
 }
 
 function checkXml(label, xml) {
@@ -187,14 +187,14 @@ function checkXml(label, xml) {
   // Cheap well-formedness check: balanced tags (no CDATA/comments with tags expected).
   const stripped = xml.replace(/<!--[\s\S]*?-->/g, '').replace(/<\?[\s\S]*?\?>/g, '');
   const stack = [];
-  const re = /<(\/?)([A-Za-z_][\w:.-]*)[^>]*?(\/?)>/g;
-  let m;
-  while ((m = re.exec(stripped))) {
-    const [, closing, name, selfClosing] = m;
+  const tagPattern = /<(\/?)([A-Za-z_][\w:.-]*)[^>]*?(\/?)>/g;
+  let tagMatch;
+  while ((tagMatch = tagPattern.exec(stripped))) {
+    const [, closing, name, selfClosing] = tagMatch;
     if (selfClosing) continue;
     if (closing) {
-      const open = stack.pop();
-      assert(open === name, `${label}: </${name}> closes <${open}>`);
+      const openName = stack.pop();
+      assert(openName === name, `${label}: </${name}> closes <${openName}>`);
     } else stack.push(name);
   }
   assert(stack.length === 0, `${label}: unclosed <${stack.pop()}>`);
@@ -203,18 +203,18 @@ function checkXml(label, xml) {
 // Regression guard for #7: the customizations.xml root must match what the target's XSD
 // accepts, and nodes stripped for the target must really be gone.
 function checkCustomizationsRoot(targetKey, target, xml) {
-  const root = /<ImportExportXml\b[^>]*>/.exec(xml);
-  assert(root, `${targetKey} customizations.xml: no <ImportExportXml> root`);
-  const attrs = new Set([...root[0].matchAll(/\s([\w:]+)="/g)].map((m) => m[1]));
+  const rootTag = /<ImportExportXml\b[^>]*>/.exec(xml);
+  assert(rootTag, `${targetKey} customizations.xml: no <ImportExportXml> root`);
+  const attrs = new Set([...rootTag[0].matchAll(/\s([\w:]+)="/g)].map((match) => match[1]));
   const orgAttrs = ['OrganizationVersion', 'OrganizationSchemaType'];
-  for (const a of orgAttrs) {
+  for (const attr of orgAttrs) {
     assert(
-      attrs.has(a) === target.customizationsOrganizationAttributes,
-      `${targetKey} customizations.xml: root attribute ${a} ${attrs.has(a) ? 'present' : 'missing'}`
+      attrs.has(attr) === target.customizationsOrganizationAttributes,
+      `${targetKey} customizations.xml: root attribute ${attr} ${attrs.has(attr) ? 'present' : 'missing'}`
     );
   }
   const allowed = new Set(['xmlns:xsi', ...orgAttrs]);
-  for (const a of attrs) assert(allowed.has(a), `${targetKey} customizations.xml: unexpected root attribute ${a}`);
+  for (const attr of attrs) assert(allowed.has(attr), `${targetKey} customizations.xml: unexpected root attribute ${attr}`);
   for (const node of target.stripCustomizationNodes || []) {
     assert(!new RegExp(`<${node}[\\s/>]`).test(xml), `${targetKey} customizations.xml: <${node}> not stripped`);
   }
@@ -229,11 +229,11 @@ function stripRibbonCustomActions(targetKey, target, ribbon) {
   const ids = target.excludeRibbonCustomActions || [];
   assert(Array.isArray(ids), `Target ${targetKey}: "excludeRibbonCustomActions" must be an array`);
   for (const id of ids) {
-    const re = new RegExp(
+    const customActionPattern = new RegExp(
       `(?:[ \\t]*<!--(?:(?!-->)[\\s\\S])*-->\\s*)?[ \\t]*<CustomAction\\s+Id="${escapeRegExp(id)}"[\\s\\S]*?</CustomAction>[ \\t]*\\r?\\n?`
     );
-    assert(re.test(ribbon), `Target ${targetKey}: excluded CustomAction ${id} not found in RibbonDiffXml.xml`);
-    ribbon = ribbon.replace(re, '');
+    assert(customActionPattern.test(ribbon), `Target ${targetKey}: excluded CustomAction ${id} not found in RibbonDiffXml.xml`);
+    ribbon = ribbon.replace(customActionPattern, '');
   }
   return ribbon;
 }
@@ -243,10 +243,10 @@ function stripRibbonCustomActions(targetKey, target, ribbon) {
 function checkRibbonLocations(targetKey, target, ribbon) {
   const forbidden = target.forbiddenRibbonLocations || [];
   assert(Array.isArray(forbidden), `Target ${targetKey}: "forbiddenRibbonLocations" must be an array`);
-  const code = ribbon.replace(/<!--[\s\S]*?-->/g, '');
-  const values = [...code.matchAll(/\s(?:Location|Id|Command|Library)="([^"]*)"/g)].map((m) => m[1]);
-  for (const root of forbidden) {
-    const hit = values.find((v) => v === root || v.startsWith(`${root}.`));
+  const uncommented = ribbon.replace(/<!--[\s\S]*?-->/g, '');
+  const values = [...uncommented.matchAll(/\s(?:Location|Id|Command|Library)="([^"]*)"/g)].map((match) => match[1]);
+  for (const forbiddenRoot of forbidden) {
+    const hit = values.find((value) => value === forbiddenRoot || value.startsWith(`${forbiddenRoot}.`));
     assert(!hit, `Target ${targetKey}: ribbon references ${hit}, unavailable on this target (forbiddenRibbonLocations)`);
   }
 }
@@ -260,38 +260,38 @@ function webResourceVer(targetKey, target, version) {
   assert(format === 'integer', `Target ${targetKey}: "webResourceVerFormat" must be "version" or "integer", got ${format}`);
   const [a, b, c, d] = version.split('.').map(Number);
   assert(b < 100 && c < 100 && d < 100, `Target ${targetKey}: version ${version} has a part >= 100, no integer ver possible`);
-  const n = a * 1000000 + b * 10000 + c * 100 + d;
-  assert(n <= 2147483647, `Target ${targetKey}: integer ver ${n} does not fit an Int32`);
-  return String(n);
+  const integerVer = a * 1000000 + b * 10000 + c * 100 + d;
+  assert(integerVer <= 2147483647, `Target ${targetKey}: integer ver ${integerVer} does not fit an Int32`);
+  return String(integerVer);
 }
 
-function buildSolution(cfg, targetKey, version, webResourceContents, managed) {
-  const target = cfg.targets[targetKey];
+function buildSolution(config, targetKey, version, webResourceContents, managed) {
+  const target = config.targets[targetKey];
   assert(target, `Unknown target ${targetKey} (see solution/solution.config.json "targets")`);
-  const loader = cfg.webResources.find((w) => w.build === 'loader');
+  const loaderWr = config.webResources.find((wr) => wr.build === 'loader');
 
-  const ribbon = stripRibbonCustomActions(targetKey, target, fill(read(P('solution', 'ribbon', 'RibbonDiffXml.xml')), {
-    LOADER_LIBRARY: `$webresource:${loader.name}`
+  const ribbon = stripRibbonCustomActions(targetKey, target, fillTokens(read(fromRoot('solution', 'ribbon', 'RibbonDiffXml.xml')), {
+    LOADER_LIBRARY: `$webresource:${loaderWr.name}`
   }, 'RibbonDiffXml.xml'));
   checkRibbonLocations(targetKey, target, ribbon);
   assert(/<CustomAction\s/.test(ribbon), `Target ${targetKey}: no CustomAction left, the loader would never load`);
 
-  const common = {
+  const commonTokens = {
     ORG_VERSION: target.organizationVersion,
     PACKAGE_VERSION: target.packageVersion,
-    BASE_LANGUAGE: String(cfg.baseLanguage)
+    BASE_LANGUAGE: String(config.baseLanguage)
   };
 
   // CRM 8.2 XSD does not declare OrganizationVersion / OrganizationSchemaType on the
   // customizations.xml root (import fails with 0x8004801A, see #7). 9.x exports carry them.
   const orgAttrs = target.customizationsOrganizationAttributes;
   assert(typeof orgAttrs === 'boolean', `Target ${targetKey}: "customizationsOrganizationAttributes" must be true or false`);
-  let customizations = fill(read(P('solution', 'templates', 'Customizations.xml')), {
-    ...common,
+  let customizations = fillTokens(read(fromRoot('solution', 'templates', 'Customizations.xml')), {
+    ...commonTokens,
     CUSTOMIZATIONS_ROOT_ATTRIBUTES: orgAttrs
       ? ` OrganizationVersion="${xmlEscape(target.organizationVersion)}" OrganizationSchemaType="Full"`
       : '',
-    WEB_RESOURCES: webResourcesXml(cfg),
+    WEB_RESOURCES: webResourcesXml(config),
     RIBBON_DIFF_XML: ribbon
   }, 'Customizations.xml');
   for (const node of target.stripCustomizationNodes || []) {
@@ -299,19 +299,19 @@ function buildSolution(cfg, targetKey, version, webResourceContents, managed) {
   }
   checkCustomizationsRoot(targetKey, target, customizations);
 
-  const solution = fill(read(P('solution', 'templates', 'Solution.xml')), {
-    ...common,
-    UNIQUE_NAME: xmlEscape(cfg.uniqueName),
-    DISPLAY_NAME: xmlEscape(cfg.displayName),
-    DESCRIPTION: xmlEscape(cfg.description),
+  const solution = fillTokens(read(fromRoot('solution', 'templates', 'Solution.xml')), {
+    ...commonTokens,
+    UNIQUE_NAME: xmlEscape(config.uniqueName),
+    DISPLAY_NAME: xmlEscape(config.displayName),
+    DESCRIPTION: xmlEscape(config.description),
     VERSION: version,
     MANAGED: managed ? '1' : '0',
-    PUBLISHER_UNIQUE_NAME: xmlEscape(cfg.publisher.uniqueName),
-    PUBLISHER_DISPLAY_NAME: xmlEscape(cfg.publisher.displayName),
-    PUBLISHER_WEBSITE: xmlEscape(cfg.publisher.supportingWebsiteUrl),
-    PUBLISHER_PREFIX: xmlEscape(cfg.publisher.customizationPrefix),
-    PUBLISHER_OPTION_PREFIX: String(cfg.publisher.optionValuePrefix),
-    ROOT_COMPONENTS: rootComponentsXml(cfg, target)
+    PUBLISHER_UNIQUE_NAME: xmlEscape(config.publisher.uniqueName),
+    PUBLISHER_DISPLAY_NAME: xmlEscape(config.publisher.displayName),
+    PUBLISHER_WEBSITE: xmlEscape(config.publisher.supportingWebsiteUrl),
+    PUBLISHER_PREFIX: xmlEscape(config.publisher.customizationPrefix),
+    PUBLISHER_OPTION_PREFIX: String(config.publisher.optionValuePrefix),
+    ROOT_COMPONENTS: rootComponentsXml(config, target)
   }, 'Solution.xml');
 
   checkXml('customizations.xml', customizations);
@@ -320,8 +320,8 @@ function buildSolution(cfg, targetKey, version, webResourceContents, managed) {
   const files = [
     { name: 'solution.xml', data: Buffer.from(solution, 'utf8') },
     { name: 'customizations.xml', data: Buffer.from(customizations, 'utf8') },
-    ...cfg.webResources.map((wr) => ({
-      name: webResourceFileName(wr.name).slice(1),
+    ...config.webResources.map((wr) => ({
+      name: webResourcePath(wr.name).slice(1),
       data: Buffer.from(webResourceContents[wr.name], 'utf8')
     }))
   ];
@@ -332,14 +332,14 @@ function buildSolution(cfg, targetKey, version, webResourceContents, managed) {
 // ---------- main ----------
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const cfg = JSON.parse(read(P('solution', 'solution.config.json')));
-  const version = args.version || cfg.version;
+  const config = JSON.parse(read(fromRoot('solution', 'solution.config.json')));
+  const version = args.version || config.version;
   assert(/^\d+\.\d+\.\d+\.\d+$/.test(version), `Version must be a.b.c.d, got ${version}`);
-  const targets = args.targets.length ? args.targets : cfg.defaultTargets;
-  checkWebResources(cfg);
+  const targets = args.targets.length ? args.targets : config.defaultTargets;
+  checkWebResources(config);
 
-  const polyfillWr = cfg.webResources.find((w) => w.build === 'polyfill');
-  const loaderWr = cfg.webResources.find((w) => w.build === 'loader');
+  const polyfillWr = config.webResources.find((wr) => wr.build === 'polyfill');
+  const loaderWr = config.webResources.find((wr) => wr.build === 'loader');
   const tokens = {
     BNZ_VERSION: version,
     POLYFILL_VERSION: polyfillVersion(),
@@ -349,42 +349,43 @@ async function main() {
 
   console.log(`> web resources (solution ${version}, polyfill ${tokens.POLYFILL_VERSION})`);
   const contents = {};
-  for (const wr of cfg.webResources) {
+  for (const wr of config.webResources) {
     // build/webresources gets the loader with the default cache-buster; a target with
     // another webResourceVerFormat gets its own copy in its package (see below).
     if (wr.build === 'loader') contents[wr.name] = buildLoader({ ...tokens, WEBRESOURCE_VER: version });
     else if (wr.build === 'polyfill') contents[wr.name] = await buildPolyfill(tokens, args.minify);
-    else if (wr.source) contents[wr.name] = read(P(wr.source));
+    else if (wr.source) contents[wr.name] = read(fromRoot(wr.source));
     else throw new Error(`Web resource ${wr.name}: needs "build" or "source"`);
-    const out = P('build', 'webresources', ...wr.name.split('/'));
-    write(out, contents[wr.name]);
+    const outPath = fromRoot('build', 'webresources', ...wr.name.split('/'));
+    write(outPath, contents[wr.name]);
     console.log(`  ${wr.name}  ${(Buffer.byteLength(contents[wr.name]) / 1024).toFixed(1)} KB`);
   }
 
-  for (const t of targets) {
-    assert(cfg.targets[t], `Unknown target ${t} (see solution/solution.config.json "targets")`);
-    const ver = webResourceVer(t, cfg.targets[t], version);
-    const targetContents = ver === version
+  for (const targetKey of targets) {
+    assert(config.targets[targetKey], `Unknown target ${targetKey} (see solution/solution.config.json "targets")`);
+    const cacheBusterVer = webResourceVer(targetKey, config.targets[targetKey], version);
+    const targetContents = cacheBusterVer === version
       ? contents
-      : { ...contents, [loaderWr.name]: buildLoader({ ...tokens, WEBRESOURCE_VER: ver }) };
+      : { ...contents, [loaderWr.name]: buildLoader({ ...tokens, WEBRESOURCE_VER: cacheBusterVer }) };
     assert(
-      targetContents[loaderWr.name].includes(`webResourceVer: '${ver}'`),
-      `Target ${t}: loader does not carry webResourceVer '${ver}'`
+      targetContents[loaderWr.name].includes(`webResourceVer: '${cacheBusterVer}'`),
+      `Target ${targetKey}: loader does not carry webResourceVer '${cacheBusterVer}'`
     );
-    if (ver !== version) console.log(`> ${t}: loader with ?ver=${ver}`);
-    const files = buildSolution(cfg, t, version, targetContents, args.managed);
+    if (cacheBusterVer !== version) console.log(`> ${targetKey}: loader with ?ver=${cacheBusterVer}`);
+    const files = buildSolution(config, targetKey, version, targetContents, args.managed);
     const suffix = args.managed ? '_managed' : '';
-    const stage = P('dist', `crm${t.replace('.', '')}${suffix}`);
-    fs.rmSync(stage, { recursive: true, force: true });
-    for (const f of files) write(path.join(stage, ...f.name.split('/')), f.data);
+    const targetTag = `crm${targetKey.replace('.', '')}${suffix}`;
+    const stageDir = fromRoot('dist', targetTag);
+    fs.rmSync(stageDir, { recursive: true, force: true });
+    for (const file of files) write(path.join(stageDir, ...file.name.split('/')), file.data);
     if (args.check) {
-      console.log(`> ${t}${suffix}: checked (${files.length} files, no zip)`);
+      console.log(`> ${targetKey}${suffix}: checked (${files.length} files, no zip)`);
       continue;
     }
-    const zipName = `${cfg.uniqueName}_${version.replace(/\./g, '_')}_crm${t.replace('.', '')}${suffix}.zip`;
-    const zipPath = P('dist', zipName);
+    const zipName = `${config.uniqueName}_${version.replace(/\./g, '_')}_${targetTag}.zip`;
+    const zipPath = fromRoot('dist', zipName);
     write(zipPath, createZip(files));
-    console.log(`> ${t}${suffix}: dist/${zipName}  ${(fs.statSync(zipPath).size / 1024).toFixed(1)} KB`);
+    console.log(`> ${targetKey}${suffix}: dist/${zipName}  ${(fs.statSync(zipPath).size / 1024).toFixed(1)} KB`);
   }
 }
 
