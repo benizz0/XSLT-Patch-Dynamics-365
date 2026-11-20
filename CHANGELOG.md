@@ -41,6 +41,14 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
   d'import avant la priorité, imports successifs et imbriqués compris. Les templates nommés et
   les variables globales sont départagés de la même façon, par nom étendu (URI + nom local) ;
   un template `name` + `match` écrasé par son nom garde sa règle `match`.
+- **Shim XSLT tiers écrasé s'il apparaissait pendant le téléchargement (#4).** En mode `auto`,
+  un script de la page pouvait installer un `XSLTProcessor` utilisable entre la détection et la
+  fin du téléchargement asynchrone du polyfill. `X.evalPolyfill` ne vérifiait que le marqueur
+  du projet, et la détection upstream ne reconnaît que le constructeur natif : le shim était
+  remplacé (invariant 4). `X.evalPolyfill` revérifie désormais `X.isXsltUsable` juste avant
+  l'évaluation, laisse le shim en place et journalise `polyfill-skipped` au lieu de
+  `polyfill-installed`. Un stub encore référencé par la page renvoie alors une instance du
+  shim. Le mode `always` remplace toujours le constructeur existant.
 
 ## [1.0.0.10] - 2026-11-19
 
