@@ -93,6 +93,9 @@
       var precedence = textTransform('/data/precedence.xsl', '<root><a/><b/><c/><d/><e/><f/></root>');
       report('nested + successive imports, named templates, variables (issue #5)',
         precedence === 'A;Bb;Mc;P;Be;n-A1;|n-A|B' ? 'pass' : 'fail', precedence);
+      var expandedNames = textTransform('/data/precedence-ns.xsl', '<x/>');
+      report('named templates compared by expanded name (DYN-006)',
+        expandedNames === 'Ra;Rb;over-main;' ? 'pass' : 'fail', expandedNames);
 
       // document() stays unsupported synchronously: clean error, and the Wasm
       // module must keep working for the next transform.

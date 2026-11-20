@@ -495,9 +495,17 @@
       if (el.nodeType !== 1 || el.namespaceURI !== DYN_XSLNS) {
         return null;
       }
-      const name = el.getAttribute('name');
+      let name = el.getAttribute('name');
       if (!name) {
         return null;
+      }
+      // Compare expanded names: p:x and q:x match when p and q are bound to
+      // the same URI, and differ when one prefix is bound to two URIs.
+      const colon = name.indexOf(':');
+      if (colon > 0) {
+        const prefix = name.slice(0, colon);
+        const uri = el.lookupNamespaceURI(prefix);
+        name = '{' + (uri === null ? prefix + ':' : uri) + '}' + name.slice(colon + 1);
       }
       if (el.localName === 'template') {
         return 'template:' + name;
