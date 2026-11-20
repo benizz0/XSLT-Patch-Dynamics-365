@@ -21,6 +21,21 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
   Le champ `nativeUsable` du rapport garde son nom ; il vaut vrai aussi quand le polyfill
   ou un shim tiers est présent (commentaire ajouté dans le code).
 
+### Corrigé
+
+- **Recherche avancée manquée : la popup disparaissait si sa réouverture était bloquée (#1).**
+  La récupération fermait la fenêtre avant d'ouvrir sa remplaçante. Quand le navigateur
+  refusait `window.open` (bloqueur de popups, récupération lancée hors activation
+  utilisateur), la fenêtre était fermée sans remplacement. `X.reopenPopup` ouvre désormais
+  la remplaçante d'abord, sous un nom temporaire unique (le nom d'origine ferait naviguer la
+  fenêtre existante au lieu d'en créer une neuve), ferme l'ancienne, puis donne son nom à la
+  nouvelle. Si l'ouverture est refusée, ou si l'ancienne fenêtre ne peut pas être fermée, rien
+  n'est fermé, la marque du document n'est pas engagée et le loader passe au rechargement
+  borné (garde `bnz.xsltpatch.reloaded` dans `sessionStorage`).
+- **Récupération au plus une fois, aussi après un rechargement de repli.** `X.recoverIfMissed`
+  lit la garde de rechargement avant de tenter une réouverture : une popup rechargée parce
+  que sa réouverture était bloquée n'est plus rouverte à son échec suivant.
+
 ## [1.0.0.10] - 2026-11-19
 
 Correctif d'exécution CRM 8.2 : le paquet 1.0.0.9 s'importait, mais le loader n'arrivait pas
