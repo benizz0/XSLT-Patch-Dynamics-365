@@ -22,7 +22,7 @@
   var define, module, exports;
 
   // DYN-003: per-window options set by the loader, read once, then removed.
-  var bnzOptions = window.bnzXsltPatchPolyfillOptions || {};
+  var loaderOptions = window.bnzXsltPatchPolyfillOptions || {};
   try {
     delete window.bnzXsltPatchPolyfillOptions;
   } catch (e) {
@@ -32,9 +32,9 @@
   // "Setting Options Without Globals".
   // eslint-disable-next-line no-unused-vars
   var xsltPolyfillOptions = {
-    xsltUsePolyfillOnlyIfNeeded: bnzOptions.onlyIfNeeded !== false,
-    xsltDontAutoloadXmlDocs: !bnzOptions.autoload,
-    xsltPolyfillQuiet: !bnzOptions.debug
+    xsltUsePolyfillOnlyIfNeeded: loaderOptions.onlyIfNeeded !== false,
+    xsltDontAutoloadXmlDocs: !loaderOptions.autoload,
+    xsltPolyfillQuiet: !loaderOptions.debug
   };
 
   // ---- vendor/xslt_polyfill/dist/xslt-wasm.js ----

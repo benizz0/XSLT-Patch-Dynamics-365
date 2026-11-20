@@ -3,13 +3,13 @@
   // Highest same-origin ancestor of `win`: legacy web client runs ribbon code
   // in main.aspx (top) while forms live in contentIFrameN; UCI runs it in top.
   X.rootOf = function (win) {
-    var w = win;
+    var current = win;
     try {
-      while (w.parent && w.parent !== w && X.docOf(w.parent)) {
-        w = w.parent;
+      while (current.parent && current.parent !== current && X.docOf(current.parent)) {
+        current = current.parent;
       }
     } catch (e) { /* cross-origin parent */ }
-    return w;
+    return current;
   };
 
   X.readSeed = function (win) {
@@ -22,7 +22,7 @@
     } catch (e) {
       try {
         win[X.SEED_KEY] = undefined;
-      } catch (e2) { /* ignore */ }
+      } catch (ignored) { /* ignore */ }
     }
     return seed;
   };
@@ -54,8 +54,8 @@
     var state = root[X.STATE_KEY];
     if (state) {
       X.state = state;
-      if (state.version !== X.build.version) {
-        X.warn('two loader versions in the same tab:', state.version, X.build.version);
+      if (state.version !== X.buildInfo.version) {
+        X.warn('two loader versions in the same tab:', state.version, X.buildInfo.version);
       }
       if (state.active) {
         X.processWindow(root, 'enable');
@@ -69,12 +69,12 @@
     state = X.newState(root, X.readSeed(root));
     root[X.STATE_KEY] = state;
     X.state = state;
-    X.record('bootstrap', root, 'mode=' + state.config.mode + ' copy=' + X.copyId +
+    X.addJournalEntry('bootstrap', root, 'mode=' + state.config.mode + ' copy=' + X.copyId +
       (state.seededFrom ? ' seededFrom=' + state.seededFrom : ''));
 
     state.active = state.config.mode !== 'off' && X.needsPolyfill(root);
     if (!state.active) {
-      X.record('inactive', root, state.config.mode === 'off' ? 'mode=off' : 'native XSLT works');
+      X.addJournalEntry('inactive', root, state.config.mode === 'off' ? 'mode=off' : 'native XSLT works');
       return state;
     }
     if (state.config.prefetch) {
@@ -82,24 +82,24 @@
     }
     // Opener first: if it reloads this window, patching it now is wasted
     // (and could reload frames for nothing).
-    if (state.config.adoptOpener && X.adoptOpener(root)) {
-      X.record('reloaded-by-opener', root);
+    if (state.config.adoptOpener && X.handOverToOpener(root)) {
+      X.addJournalEntry('reloaded-by-opener', root);
       return state;
     }
     X.processWindow(root, 'bootstrap');
     if (loaderWindow !== root) {
       X.processWindow(loaderWindow, 'bootstrap-self');
     }
-    X.burst();
+    X.startFastSweep();
     return state;
   };
 
   X.newState = function (root, seed) {
     seed = seed || {};
     var state = {
-      version: X.build.version,
+      version: X.buildInfo.version,
       ownerId: X.copyId,
-      api: ns,
+      api: publicApi,
       startedAt: new Date().toISOString(),
       config: X.readConfig(root),
       active: false,
@@ -126,7 +126,7 @@
   // opener's loader (injected there if needed). The opener survives the
   // popup's reload, so it can reload the popup under watch.
   // Returns true when the opener reloads this window.
-  X.adoptOpener = function (root) {
+  X.handOverToOpener = function (root) {
     var opener;
     try {
       opener = root.opener;
@@ -144,7 +144,7 @@
     try {
       api.bootstrap();
       var reloading = api.adopt(root, X.docOf(root).readyState !== 'loading') === true;
-      X.record('opener-adopted', openerRoot, reloading ? 'reloading this window' : '');
+      X.addJournalEntry('opener-adopted', openerRoot, reloading ? 'reloading this window' : '');
       return reloading;
     } catch (e) {
       X.warn('opener adoption failed', e);
@@ -154,7 +154,7 @@
 
   // Called by a popup's loader copy on its opener's copy. `missed`: the popup
   // bootstrapped after its document had loaded (scripts ran without XSLT).
-  X.adopt = function (popup, missed) {
+  X.adoptPopup = function (popup, missed) {
     var state = X.state;
     if (!state || !state.active) {
       return false;
@@ -174,11 +174,11 @@
       mark = { firstSeen: new Date().toISOString(), action: 'none', missed: true, watchers: {} };
       doc[X.MARK_KEY] = mark;
     }
-    return X.reloadIfMissed(popup, mark);
+    return X.recoverIfMissed(popup, mark);
   };
 
   // Legacy web client shows disabled buttons greyed out: hide ours.
-  X.hideLegacyButtons = function (state) {
+  X.hideLegacyButton = function (state) {
     if (!state.config.hideLegacyButton || state.config.showButton) {
       return;
     }
@@ -187,11 +187,11 @@
       return;
     }
     try {
-      var nodes = doc.querySelectorAll('[id*="' + X.build.buttonIdFragment + '"]');
+      var nodes = doc.querySelectorAll('[id*="' + X.buildInfo.buttonIdFragment + '"]');
       for (var i = 0; i < nodes.length; i++) {
-        var el = nodes[i];
-        var li = el.closest ? (el.closest('li') || el) : el;
-        li.style.display = 'none';
+        var button = nodes[i];
+        var container = button.closest ? (button.closest('li') || button) : button;
+        container.style.display = 'none';
       }
     } catch (e) { /* ignore */ }
   };
@@ -199,32 +199,33 @@
   X.diagnostics = function () {
     var state = X.state;
     if (!state) {
-      return { bootstrapped: false, version: X.build.version, copyId: X.copyId };
+      return { bootstrapped: false, version: X.buildInfo.version, copyId: X.copyId };
     }
     var windows = [];
     var xsltErrors = [];
     var includesFailed = [];
-    var walk = function (win, depth) {
+    var collectWindow = function (win, depth) {
       var doc = X.docOf(win);
       if (!doc || depth > 12) {
         return;
       }
       var mark = X.markOf(doc);
-      var poly = null;
+      var polyfillInfo = null;
       try {
-        poly = win.__bnzXsltPolyfillLoaded || null;
+        polyfillInfo = win.__bnzXsltPolyfillLoaded || null;
       } catch (e) { /* ignore */ }
       var url = X.safeUrl(win);
       var j;
-      if (poly && poly.errors) {
-        for (j = 0; j < poly.errors.length; j++) {
-          xsltErrors.push({ url: url, at: poly.errors[j].at, method: poly.errors[j].method,
-            stylesheet: poly.errors[j].stylesheet, error: poly.errors[j].error });
+      if (polyfillInfo && polyfillInfo.errors) {
+        for (j = 0; j < polyfillInfo.errors.length; j++) {
+          var error = polyfillInfo.errors[j];
+          xsltErrors.push({ url: url, at: error.at, method: error.method,
+            stylesheet: error.stylesheet, error: error.error });
         }
       }
-      if (poly && poly.includes && poly.includes.failed) {
-        for (j = 0; j < poly.includes.failed.length; j++) {
-          includesFailed.push(poly.includes.failed[j]);
+      if (polyfillInfo && polyfillInfo.includes && polyfillInfo.includes.failed) {
+        for (j = 0; j < polyfillInfo.includes.failed.length; j++) {
+          includesFailed.push(polyfillInfo.includes.failed[j]);
         }
       }
       windows.push({
@@ -232,26 +233,28 @@
         action: mark ? mark.action : 'unprocessed',
         missed: mark ? !!mark.missed : false,
         cssFallbacks: mark && mark.cssFallbacks || 0,
+        // Report field kept for compatibility: true for native XSLT, our
+        // polyfill or a third-party shim (see X.isXsltUsable).
         nativeUsable: X.isXsltUsable(win),
         polyfilled: X.isPolyfilled(win),
         loaderCopy: !!X.loaderApiOf(win),
-        xsltCalls: poly && poly.calls || 0,
-        xsltErrors: poly && poly.errors ? poly.errors.length : 0,
-        includesInlined: poly && poly.includes ? poly.includes.inlined.length : 0
+        xsltCalls: polyfillInfo && polyfillInfo.calls || 0,
+        xsltErrors: polyfillInfo && polyfillInfo.errors ? polyfillInfo.errors.length : 0,
+        includesInlined: polyfillInfo && polyfillInfo.includes ? polyfillInfo.includes.inlined.length : 0
       });
       for (var i = 0; i < win.frames.length; i++) {
-        walk(win.frames[i], depth + 1);
+        collectWindow(win.frames[i], depth + 1);
       }
     };
-    walk(state.root, 0);
-    for (var p = 0; p < state.popups.length; p++) {
-      walk(state.popups[p].win, 0);
+    collectWindow(state.root, 0);
+    for (var i = 0; i < state.popups.length; i++) {
+      collectWindow(state.popups[i].win, 0);
     }
     return {
       bootstrapped: true,
       active: state.active,
       version: state.version,
-      polyfillVersion: X.build.polyfillVersion,
+      polyfillVersion: X.buildInfo.polyfillVersion,
       copyId: X.copyId,
       ownerId: state.ownerId,
       startedAt: state.startedAt,
@@ -269,32 +272,32 @@
   };
 
   X.showDialog = function (text) {
-    var w = loaderWindow;
+    var win = loaderWindow;
     try {
-      if (w.Xrm && w.Xrm.Navigation && w.Xrm.Navigation.openAlertDialog) {
-        w.Xrm.Navigation.openAlertDialog({ title: 'XSLT Patch', text: text });
+      if (win.Xrm && win.Xrm.Navigation && win.Xrm.Navigation.openAlertDialog) {
+        win.Xrm.Navigation.openAlertDialog({ title: 'XSLT Patch', text: text });
         return;
       }
-      if (w.Xrm && w.Xrm.Utility && w.Xrm.Utility.alertDialog) {
-        w.Xrm.Utility.alertDialog(text);
+      if (win.Xrm && win.Xrm.Utility && win.Xrm.Utility.alertDialog) {
+        win.Xrm.Utility.alertDialog(text);
         return;
       }
     } catch (e) { /* fall back */ }
-    w.alert(text);
+    win.alert(text);
   };
 
   // ---- public API ----
-  ns.version = X.build.version;
-  ns.isLoader = true;
+  publicApi.version = X.buildInfo.version;
+  publicApi.isLoader = true;
 
-  ns.Ribbon = {
+  publicApi.Ribbon = {
     // EnableRule > CustomRule FunctionName="bnz.XsltPatch.Ribbon.enable".
     // Never throws. Returns false (button hidden in UCI) unless diagnostics
     // are switched on.
     enable: function () {
       try {
         var state = X.bootstrap();
-        X.hideLegacyButtons(state);
+        X.hideLegacyButton(state);
         return !!state.config.showButton;
       } catch (e) {
         X.warn('enable rule failed', e);
@@ -305,28 +308,28 @@
     showDiagnostics: function () {
       try {
         X.bootstrap();
-        var d = X.diagnostics();
+        var diagnostics = X.diagnostics();
         if (loaderWindow.console) {
-          loaderWindow.console.log(X.PREFIX, 'diagnostics', d);
+          loaderWindow.console.log(X.LOG_PREFIX, 'diagnostics', diagnostics);
         }
         var lines = [
-          'Version : ' + d.version + ' (polyfill ' + d.polyfillVersion + ')',
-          'Mode : ' + d.config.mode + (d.active ? '' : ' (inactif : XSLT natif OK)'),
-          'Polyfill téléchargé : ' + (d.polyfillDownloaded ? 'oui' : 'non'),
-          'Popups suivies : ' + d.trackedPopups,
+          'Version : ' + diagnostics.version + ' (polyfill ' + diagnostics.polyfillVersion + ')',
+          'Mode : ' + diagnostics.config.mode + (diagnostics.active ? '' : ' (inactif : XSLT natif OK)'),
+          'Polyfill téléchargé : ' + (diagnostics.polyfillDownloaded ? 'oui' : 'non'),
+          'Popups suivies : ' + diagnostics.trackedPopups,
           'Fenêtres :'
         ];
-        for (var i = 0; i < d.windows.length; i++) {
-          var w = d.windows[i];
-          lines.push(' - [' + w.action + (w.polyfilled ? ', polyfill' : '') +
-            (w.nativeUsable ? ', ok' : ', KO') +
-            (w.xsltCalls ? ', ' + w.xsltCalls + ' appels' : '') +
-            (w.xsltErrors ? ', ' + w.xsltErrors + ' erreurs' : '') +
-            (w.cssFallbacks ? ', ' + w.cssFallbacks + ' CSS de repli' : '') + '] ' + w.url);
+        for (var i = 0; i < diagnostics.windows.length; i++) {
+          var entry = diagnostics.windows[i];
+          lines.push(' - [' + entry.action + (entry.polyfilled ? ', polyfill' : '') +
+            (entry.nativeUsable ? ', ok' : ', KO') +
+            (entry.xsltCalls ? ', ' + entry.xsltCalls + ' appels' : '') +
+            (entry.xsltErrors ? ', ' + entry.xsltErrors + ' erreurs' : '') +
+            (entry.cssFallbacks ? ', ' + entry.cssFallbacks + ' CSS de repli' : '') + '] ' + entry.url);
         }
-        if (d.xsltErrors.length) {
-          var last = d.xsltErrors[d.xsltErrors.length - 1];
-          lines.push('Dernière erreur XSLT : ' + last.method + ' - ' + last.error + ' (' + last.stylesheet + ')');
+        if (diagnostics.xsltErrors.length) {
+          var lastError = diagnostics.xsltErrors[diagnostics.xsltErrors.length - 1];
+          lines.push('Dernière erreur XSLT : ' + lastError.method + ' - ' + lastError.error + ' (' + lastError.stylesheet + ')');
         }
         lines.push('Rapport complet : copy(bnz.XsltPatch.report()) dans la console (F12).');
         X.showDialog(lines.join('\n'));
@@ -337,26 +340,26 @@
   };
 
   // For other loader copies, tests and console use.
-  ns.bootstrap = function () {
+  publicApi.bootstrap = function () {
     return X.bootstrap();
   };
-  ns.diagnostics = function () {
+  publicApi.diagnostics = function () {
     return X.diagnostics();
   };
   // JSON text to paste in a ticket: copy(bnz.XsltPatch.report()) in DevTools.
-  ns.report = function () {
+  publicApi.report = function () {
     try {
       if (!X.state) {
         X.bootstrap();
       }
-      var d = X.diagnostics();
-      d.userAgent = loaderWindow.navigator ? loaderWindow.navigator.userAgent : '';
-      return JSON.stringify(d, null, 2);
+      var diagnostics = X.diagnostics();
+      diagnostics.userAgent = loaderWindow.navigator ? loaderWindow.navigator.userAgent : '';
+      return JSON.stringify(diagnostics, null, 2);
     } catch (e) {
       return JSON.stringify({ error: String(e && e.message || e) });
     }
   };
-  ns.processWindow = function (win) {
+  publicApi.processWindow = function (win) {
     if (!X.state) {
       X.bootstrap();
     }
@@ -365,18 +368,18 @@
     }
     return X.state;
   };
-  ns.adopt = function (popup, missed) {
+  publicApi.adopt = function (popup, missed) {
     if (!X.state) {
       X.bootstrap();
     }
-    return X.adopt(popup, missed);
+    return X.adoptPopup(popup, missed);
   };
-  ns.setDebug = function (on) {
+  publicApi.setDebug = function (enabled) {
     try {
-      loaderWindow.localStorage.setItem(X.STORAGE_DEBUG_KEY, on ? '1' : '0');
+      loaderWindow.localStorage.setItem(X.STORAGE_DEBUG_KEY, enabled ? '1' : '0');
     } catch (e) { /* ignore */ }
     if (X.state) {
-      X.state.config.debug = !!on;
-      X.state.config.showButton = !!on;
+      X.state.config.debug = !!enabled;
+      X.state.config.showButton = !!enabled;
     }
   };

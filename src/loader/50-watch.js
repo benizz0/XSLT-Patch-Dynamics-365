@@ -16,7 +16,7 @@
     }
   };
 
-  X.sameTab = function (win) {
+  X.isSameTab = function (win) {
     try {
       return win.top === X.state.root.top;
     } catch (e) {
@@ -49,7 +49,7 @@
       X.patchDocument(win, doc, mark, reason);
     } else if (mark.action === 'stub' || mark.action === 'none') {
       // The document may have grown since (XSL islands parsed later).
-      X.upgradeIfEager(win, mark);
+      X.upgradeToEagerIfNeeded(win, mark);
     }
     if (mark.action === 'reload') {
       return; // the whole document (frames included) is being replaced
@@ -68,66 +68,68 @@
   };
 
   X.patchDocument = function (win, doc, mark, reason) {
-    var info = X.detect(win);
-    if (!info) {
+    var detection = X.detect(win);
+    if (!detection) {
       return;
     }
-    mark.info = info;
+    mark.info = detection;
     // A stub set on the initial about:blank Window survives the first
     // same-origin navigation (the Window is reused): such a document was
     // covered from its first script on.
-    var inherited = false;
+    var stubInherited = false;
     try {
-      inherited = !!(win.XSLTProcessor && win.XSLTProcessor.__bnzStub);
+      stubInherited = !!(win.XSLTProcessor && win.XSLTProcessor.__bnzStub);
     } catch (e) { /* ignore */ }
     // Scripts of this document already ran (or are past parsing) without us.
-    mark.missed = doc.readyState !== 'loading' && !inherited && !info.polyfilled;
-    if (info.polyfilled) {
+    mark.missed = doc.readyState !== 'loading' && !stubInherited && !detection.polyfilled;
+    // mark.action is shared with other loader copies (and versions): it holds
+    // the patch status of the document, values unchanged on purpose.
+    if (detection.polyfilled) {
       mark.action = 'already';
       return;
     }
-    if (!info.needsPolyfill) {
+    if (!detection.needsPolyfill) {
       mark.action = 'native';
       return;
     }
     // Stub first, always: it answers synchronous callers right now, even
     // when the eager install below is still downloading.
-    mark.action = X.installStub(win, info) ? 'stub' : 'none';
-    if (info.eager) {
+    mark.action = X.installStub(win, detection) ? 'stub' : 'none';
+    if (detection.needsEagerInstall) {
       mark.action = 'eager';
-      X.record('eager', win, reason + ' ' + JSON.stringify(info.signals));
-      X.installPolyfillAsync(win, info);
+      X.addJournalEntry('eager', win, reason + ' ' + JSON.stringify(detection.signals));
+      X.installPolyfillAsync(win, detection);
     }
     if (mark.missed && win !== X.state.root) {
-      X.reloadIfMissed(win, mark);
+      X.recoverIfMissed(win, mark);
     }
   };
 
   // A window first patched with the lazy stub becomes "eager" when XSL
   // content appears (e.g. after full parse).
-  X.upgradeIfEager = function (win, mark) {
+  X.upgradeToEagerIfNeeded = function (win, mark) {
     if (mark.action === 'eager' || mark.action === 'already' || mark.action === 'native' || mark.action === 'reload') {
       return;
     }
     // The sweeper calls this often: rescan only on readyState change or every 2 s.
     var now = new Date().getTime();
-    var rs;
+    var readyState;
     try {
-      rs = win.document.readyState;
+      readyState = win.document.readyState;
     } catch (e) {
       return;
     }
-    if (mark.lastScanState === rs && now - (mark.lastScanAt || 0) < 2000) {
+    if (mark.lastScanState === readyState && now - (mark.lastScanAt || 0) < 2000) {
       return;
     }
-    mark.lastScanState = rs;
+    mark.lastScanState = readyState;
     mark.lastScanAt = now;
-    var info = X.detect(win);
-    if (info && info.needsPolyfill && info.eager && !info.polyfilled) {
+    var detection = X.detect(win);
+    if (detection && detection.needsPolyfill && detection.needsEagerInstall && !detection.polyfilled) {
       mark.action = 'eager';
-      mark.info = info;
-      X.record('eager-upgrade', win, JSON.stringify(info.signals));
-      X.installPolyfillAsync(win, info);
+      mark.info = detection;
+      X.addJournalEntry('eager-upgrade', win, JSON.stringify(detection.signals));
+      X.installPolyfillAsync(win, detection);
     }
   };
 
@@ -136,46 +138,46 @@
   //  - top-level popup: reopen it (fresh initial about:blank Window, stubbed
   //    before navigation, so the page sees the stub from its first script);
   //  - otherwise: reload (best effort: the sweeper races the page scripts).
-  X.reloadIfMissed = function (win, mark) {
+  X.recoverIfMissed = function (win, mark) {
     var url = X.safeUrl(win);
     if (!X.matchesAny(url, X.state.config.reloadIfMissedPatterns)) {
       return false;
     }
     try {
       if (win.__bnzRecovered) {
-        X.record('recover-skipped', win, 'window already recovered once');
+        X.addJournalEntry('recover-skipped', win, 'window already recovered once');
         return false;
       }
     } catch (e) { /* ignore */ }
     if (win === win.top && X.reopenPopup(win, mark)) {
       return true;
     }
-    var store = null;
-    var done = [];
+    var session = null;
+    var reloadedUrls = [];
     try {
-      store = win.sessionStorage;
-      done = JSON.parse(store.getItem(X.RELOAD_KEY) || '[]') || [];
+      session = win.sessionStorage;
+      reloadedUrls = JSON.parse(session.getItem(X.RELOAD_KEY) || '[]') || [];
     } catch (e) {
-      done = [];
+      reloadedUrls = [];
     }
-    for (var i = 0; i < done.length; i++) {
-      if (done[i] === url) {
-        X.record('reload-skipped', win, 'already reloaded once');
+    for (var i = 0; i < reloadedUrls.length; i++) {
+      if (reloadedUrls[i] === url) {
+        X.addJournalEntry('reload-skipped', win, 'already reloaded once');
         return false;
       }
     }
-    if (!store) {
+    if (!session) {
       return false; // no guard available: never risk a reload loop
     }
     try {
-      done.push(url);
-      store.setItem(X.RELOAD_KEY, JSON.stringify(done.slice(-20)));
+      reloadedUrls.push(url);
+      session.setItem(X.RELOAD_KEY, JSON.stringify(reloadedUrls.slice(-20)));
     } catch (e) {
       return false;
     }
     mark.action = 'reload';
-    X.record('reload', win, 'loaded before the patch');
-    X.burst();
+    X.addJournalEntry('reload', win, 'loaded before the patch');
+    X.startFastSweep();
     try {
       win.location.reload();
       return true;
@@ -193,7 +195,7 @@
     try {
       opener = win.opener && X.docOf(win.opener) ? win.opener : null;
     } catch (e) { /* ignore */ }
-    var from = opener || X.state.root;
+    var openFrom = opener || X.state.root;
     var name = '';
     var features = '';
     try {
@@ -203,16 +205,16 @@
     } catch (e) { /* ignore */ }
     try {
       mark.action = 'reload';
-      var open = from.open.__bnzOriginal || from.open;
+      var originalOpen = openFrom.open.__bnzOriginal || openFrom.open;
       win.close();
-      var fresh = open.call(from, url, name, features);
-      if (!fresh) {
-        X.record('reopen-blocked', win, url);
+      var reopened = originalOpen.call(openFrom, url, name, features);
+      if (!reopened) {
+        X.addJournalEntry('reopen-blocked', win, url);
         return false;
       }
-      fresh.__bnzRecovered = true;
-      X.record('reopen', null, url);
-      X.watchPopup(fresh, url);
+      reopened.__bnzRecovered = true;
+      X.addJournalEntry('reopen', null, url);
+      X.watchPopup(reopened, url);
       return true;
     } catch (e) {
       X.warn('reopen failed', url, e);
@@ -222,20 +224,20 @@
 
   // Per loader copy, per document: hooks and observers.
   X.attachWatchers = function (win, doc, mark) {
-    var cfg = X.state.config;
+    var config = X.state.config;
     if (!X.state.active || !mark.watchers || mark.watchers[X.copyId] || mark.action === 'reload') {
       return;
     }
     mark.watchers[X.copyId] = true;
-    if (X.sameTab(win)) {
-      if (cfg.watchPopups) {
+    if (X.isSameTab(win)) {
+      if (config.watchPopups) {
         X.hookWindowOpen(win);
       }
-      if (cfg.watchFrames) {
-        X.hookInsertion(win);
+      if (config.watchFrames) {
+        X.hookNodeInsertion(win);
         X.observeFrames(win, doc);
       }
-    } else if (cfg.propagateToPopups && win === win.top) {
+    } else if (config.propagateToPopups && win === win.top) {
       X.propagateTo(win);
     }
   };
@@ -286,7 +288,7 @@
     }
     for (var i = 0; i < state.popups.length; i++) {
       if (state.popups[i].win === popup) {
-        X.burst();
+        X.startFastSweep();
         return;
       }
     }
@@ -294,8 +296,8 @@
       state.popups.shift();
     }
     state.popups.push({ win: popup, started: new Date().getTime(), requestedUrl: String(requestedUrl || '') });
-    X.record('popup-watched', null, String(requestedUrl || ''));
-    X.burst();
+    X.addJournalEntry('popup-watched', null, String(requestedUrl || ''));
+    X.startFastSweep();
     // Right now, while the popup is still on its initial about:blank: the
     // stub and loader copy set on this Window survive the navigation.
     X.sweepPopup(state.popups[state.popups.length - 1]);
@@ -308,13 +310,13 @@
   // Script-inserted iframes: stub their initial about:blank Window
   // synchronously, before their navigation commits (Window reuse carries
   // the stub into the loaded page). Hooked once per realm.
-  X.hookInsertion = function (win) {
+  X.hookNodeInsertion = function (win) {
     try {
       var proto = win.Node && win.Node.prototype;
       if (!proto || !proto.appendChild || proto.appendChild.__bnzHooked) {
         return;
       }
-      var wrap = function (name) {
+      var wrapMethod = function (name) {
         var original = proto[name];
         if (typeof original !== 'function') {
           return;
@@ -330,8 +332,8 @@
         hooked.__bnzOriginal = original;
         proto[name] = hooked;
       };
-      wrap('appendChild');
-      wrap('insertBefore');
+      wrapMethod('appendChild');
+      wrapMethod('insertBefore');
     } catch (e) { /* ignore */ }
   };
 
@@ -341,19 +343,20 @@
     }
     var tag = String(node.nodeName).toLowerCase();
     if (tag === 'iframe' || tag === 'frame') {
-      X.attachFrame(node);
+      X.watchFrameElement(node);
       return;
     }
     if (node.firstElementChild && node.getElementsByTagName) {
-      var list = node.getElementsByTagName('iframe');
-      for (var i = 0; i < list.length; i++) {
-        X.attachFrame(list[i]);
+      var frames = node.getElementsByTagName('iframe');
+      for (var i = 0; i < frames.length; i++) {
+        X.watchFrameElement(frames[i]);
       }
     }
   };
 
   // ---- sweeper ----
-  X.burst = function () {
+  // Fast sweeps for config.burstMs (a popup opened, a frame appeared), then slow.
+  X.startFastSweep = function () {
     var state = X.state;
     state.burstUntil = new Date().getTime() + state.config.burstMs;
     if (state.sweepDelay !== state.config.sweepFastMs) {
@@ -398,7 +401,7 @@
 
   // iframes added later (dialogs, report viewer, form tabs) and every
   // navigation of an iframe (its load event; the sweeper sees it earlier).
-  X.attachFrame = function (frameEl) {
+  X.watchFrameElement = function (frameEl) {
     try {
       if (frameEl.__bnzXsltPatchFrame === X.copyId) {
         return;
@@ -407,7 +410,7 @@
       frameEl.addEventListener('load', function () {
         X.processWindow(frameEl.contentWindow, 'frame-load');
       });
-      X.burst();
+      X.startFastSweep();
       if (frameEl.contentWindow) {
         X.processWindow(frameEl.contentWindow, 'frame-attach');
       }
@@ -422,31 +425,31 @@
       existing = [];
     }
     for (var i = 0; i < existing.length; i++) {
-      X.attachFrame(existing[i]);
+      X.watchFrameElement(existing[i]);
     }
-    var MO = win.MutationObserver || loaderWindow.MutationObserver;
+    var MutationObserverCtor = win.MutationObserver || loaderWindow.MutationObserver;
     // documentElement may not exist yet while loading: the next sweep of a
     // new mark retries through attachWatchers only once, so observe the
     // document node itself (always present).
-    if (!MO) {
+    if (!MutationObserverCtor) {
       return false;
     }
     try {
-      var observer = new MO(function (mutations) {
-        for (var m = 0; m < mutations.length; m++) {
-          var added = mutations[m].addedNodes;
-          for (var n = 0; n < added.length; n++) {
-            var node = added[n];
+      var observer = new MutationObserverCtor(function (mutations) {
+        for (var i = 0; i < mutations.length; i++) {
+          var added = mutations[i].addedNodes;
+          for (var j = 0; j < added.length; j++) {
+            var node = added[j];
             if (node.nodeType !== 1) {
               continue;
             }
             var tag = String(node.nodeName).toLowerCase();
             if (tag === 'iframe' || tag === 'frame') {
-              X.attachFrame(node);
+              X.watchFrameElement(node);
             } else if (node.querySelectorAll) {
-              var inner = node.querySelectorAll('iframe, frame');
-              for (var k = 0; k < inner.length; k++) {
-                X.attachFrame(inner[k]);
+              var innerFrames = node.querySelectorAll('iframe, frame');
+              for (var k = 0; k < innerFrames.length; k++) {
+                X.watchFrameElement(innerFrames[k]);
               }
             }
           }

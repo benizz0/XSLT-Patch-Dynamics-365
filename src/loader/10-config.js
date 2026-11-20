@@ -1,6 +1,6 @@
   // ---- 10-config ----
   // Tokens {{...}} are replaced by scripts/build.mjs.
-  X.build = {
+  X.buildInfo = {
     version: '{{BNZ_VERSION}}',
     // Value of the ?ver= cache-buster on the URLs the loader builds. Set per
     // target by the build: the solution version, or an integer on CRM 8.2,
@@ -92,34 +92,34 @@
   };
 
   X.readConfig = function (root) {
-    var cfg = {};
-    var k;
-    for (k in X.defaultConfig) {
-      if (Object.prototype.hasOwnProperty.call(X.defaultConfig, k)) {
-        cfg[k] = X.defaultConfig[k];
+    var config = {};
+    var key;
+    for (key in X.defaultConfig) {
+      if (Object.prototype.hasOwnProperty.call(X.defaultConfig, key)) {
+        config[key] = X.defaultConfig[key];
       }
     }
-    var sources = [];
+    var overrides = [];
     try {
-      sources.push(root.bnzXsltPatchConfig);
+      overrides.push(root.bnzXsltPatchConfig);
     } catch (e) { /* ignore */ }
-    sources.push(X.readJsonStorage(X.STORAGE_CONFIG_KEY));
-    for (var i = 0; i < sources.length; i++) {
-      var src = sources[i];
-      if (!src || typeof src !== 'object') {
+    overrides.push(X.readJsonStorage(X.STORAGE_CONFIG_KEY));
+    for (var i = 0; i < overrides.length; i++) {
+      var override = overrides[i];
+      if (!override || typeof override !== 'object') {
         continue;
       }
-      for (k in src) {
-        if (Object.prototype.hasOwnProperty.call(X.defaultConfig, k)) {
-          cfg[k] = src[k];
+      for (key in override) {
+        if (Object.prototype.hasOwnProperty.call(X.defaultConfig, key)) {
+          config[key] = override[key];
         }
       }
     }
     try {
       if (loaderWindow.localStorage && loaderWindow.localStorage.getItem(X.STORAGE_DEBUG_KEY) === '1') {
-        cfg.debug = true;
-        cfg.showButton = true;
+        config.debug = true;
+        config.showButton = true;
       }
     } catch (e) { /* ignore */ }
-    return cfg;
+    return config;
   };

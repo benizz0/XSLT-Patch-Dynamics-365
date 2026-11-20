@@ -84,7 +84,7 @@ Il doit afficher `AUTOTEST PASS`. Si aucun navigateur n'est disponible, lancer a
    [CHANGELOG.md](CHANGELOG.md). Elle invalide le cache des web resources (`?ver=`).
 9. **Propriété des hooks.** Une copie du loader ne pose de hooks (`window.open`,
    `appendChild`/`insertBefore`, `MutationObserver`, `load`) que dans les fenêtres de **son
-   onglet** (`X.sameTab`). Dans une popup, on injecte une copie du loader (`propagateTo`) au lieu
+   onglet** (`X.isSameTab`). Dans une popup, on injecte une copie du loader (`propagateTo`) au lieu
    d'y poser des fonctions d'un autre royaume, qui deviendraient invalides quand ce royaume
    meurt. L'état d'un onglet appartient à la copie du royaume racine
    (`state.ownerId`).
@@ -117,7 +117,7 @@ Il doit afficher `AUTOTEST PASS`. Si aucun navigateur n'est disponible, lancer a
 - Les `CustomRule` du ribbon s'exécutent dans la fenêtre principale (`main.aspx`). En
   client legacy, les formulaires sont dans `contentIFrameN` : c'est pour ça que le loader
   part de la racine même origine et descend.
-- UCI masque les boutons désactivés, le client legacy les grise. D'où `hideLegacyButtons`.
+- UCI masque les boutons désactivés, le client legacy les grise. D'où `X.hideLegacyButton` (option `hideLegacyButton`).
 - Les rapports s'ouvrent via `window.open` (`/crmreports/viewer/viewer.aspx`), puis le
   ReportViewer charge des iframes.
 - La Recherche avancée (`/main.aspx?pagetype=advancedfind`, iframe `/AdvancedFind/...`)

@@ -4,60 +4,61 @@
   // to propagate it into popups / opener / root realms.
 
   X.getClientUrl = function () {
-    var w = loaderWindow;
+    var win = loaderWindow;
     try {
-      if (w.Xrm && w.Xrm.Utility && typeof w.Xrm.Utility.getGlobalContext === 'function') {
-        return w.Xrm.Utility.getGlobalContext().getClientUrl();
+      if (win.Xrm && win.Xrm.Utility && typeof win.Xrm.Utility.getGlobalContext === 'function') {
+        return win.Xrm.Utility.getGlobalContext().getClientUrl();
       }
     } catch (e) { /* 9.x API missing */ }
     try {
-      if (w.Xrm && w.Xrm.Page && w.Xrm.Page.context) {
-        return w.Xrm.Page.context.getClientUrl();
+      if (win.Xrm && win.Xrm.Page && win.Xrm.Page.context) {
+        return win.Xrm.Page.context.getClientUrl();
       }
     } catch (e) { /* 8.x API missing */ }
     try {
-      if (typeof w.GetGlobalContext === 'function') {
-        return w.GetGlobalContext().getClientUrl();
+      if (typeof win.GetGlobalContext === 'function') {
+        return win.GetGlobalContext().getClientUrl();
       }
     } catch (e) { /* not in a web resource */ }
     // Last resort: everything before "/WebResources/", "/main.aspx" or "/_..."
-    var href = X.safeUrl(w);
-    var m = /^(https?:\/\/[^\/]+(?:\/[^\/_][^\/]*)?)\/(?:WebResources|main\.aspx|_|uclient|form|crmreports|advancedfind|tools)/i.exec(href);
-    if (m) {
-      return m[1];
+    var href = X.safeUrl(win);
+    var urlMatch = /^(https?:\/\/[^\/]+(?:\/[^\/_][^\/]*)?)\/(?:WebResources|main\.aspx|_|uclient|form|crmreports|advancedfind|tools)/i.exec(href);
+    if (urlMatch) {
+      return urlMatch[1];
     }
-    return w.location.protocol + '//' + w.location.host;
+    return win.location.protocol + '//' + win.location.host;
   };
 
   X.webResourceUrl = function (name) {
     var base = X.state.clientUrl.replace(/\/+$/, '');
-    return base + '/WebResources/' + name + '?ver=' + encodeURIComponent(X.build.webResourceVer);
+    return base + '/WebResources/' + name + '?ver=' + encodeURIComponent(X.buildInfo.webResourceVer);
   };
 
   X.polyfillUrl = function () {
-    return X.webResourceUrl(X.build.polyfillWebResource);
+    return X.webResourceUrl(X.buildInfo.polyfillWebResource);
   };
 
   X.loaderUrl = function () {
-    return X.webResourceUrl(X.build.loaderWebResource);
+    return X.webResourceUrl(X.buildInfo.loaderWebResource);
   };
 
-  // kind: 'polyfill' | 'loader'. Cached as text on the shared state.
-  X.sources = {
-    polyfill: { key: 'polyfillSource', url: function () { return X.polyfillUrl(); } },
-    loader: { key: 'loaderSource', url: function () { return X.loaderUrl(); } }
+  // kind: 'polyfill' | 'loader'. The downloaded text is cached on the shared
+  // state under `cacheKey`.
+  X.downloads = {
+    polyfill: { cacheKey: 'polyfillSource', url: function () { return X.polyfillUrl(); } },
+    loader: { cacheKey: 'loaderSource', url: function () { return X.loaderUrl(); } }
   };
 
   // Synchronous fetch: the lazy stub must answer `new XSLTProcessor()` now.
   // DYN-004: XHR decodes JS as UTF-8, which the single-file wasm needs.
-  X.loadSync = function (kind) {
+  X.downloadSync = function (kind) {
     var state = X.state;
-    var src = X.sources[kind];
-    if (state[src.key]) {
-      return state[src.key];
+    var download = X.downloads[kind];
+    if (state[download.cacheKey]) {
+      return state[download.cacheKey];
     }
     var xhr = new loaderWindow.XMLHttpRequest();
-    xhr.open('GET', src.url(), false);
+    xhr.open('GET', download.url(), false);
     if (xhr.overrideMimeType) {
       xhr.overrideMimeType('text/javascript; charset=utf-8');
     }
@@ -65,15 +66,15 @@
     if (xhr.status !== 200) {
       throw new Error(kind + ' download failed: HTTP ' + xhr.status);
     }
-    state[src.key] = xhr.responseText;
-    return state[src.key];
+    state[download.cacheKey] = xhr.responseText;
+    return state[download.cacheKey];
   };
 
-  X.loadAsync = function (kind, callback) {
+  X.downloadAsync = function (kind, callback) {
     var state = X.state;
-    var src = X.sources[kind];
-    if (state[src.key]) {
-      callback(null, state[src.key]);
+    var download = X.downloads[kind];
+    if (state[download.cacheKey]) {
+      callback(null, state[download.cacheKey]);
       return;
     }
     var queue = state.pending[kind] || (state.pending[kind] = []);
@@ -82,17 +83,17 @@
       return;
     }
     var flush = function (err, text) {
-      var list = queue.splice(0, queue.length);
-      for (var i = 0; i < list.length; i++) {
+      var callbacks = queue.splice(0, queue.length);
+      for (var i = 0; i < callbacks.length; i++) {
         try {
-          list[i](err, text);
+          callbacks[i](err, text);
         } catch (e) {
           X.warn('callback error', e);
         }
       }
     };
     var xhr = new loaderWindow.XMLHttpRequest();
-    xhr.open('GET', src.url(), true);
+    xhr.open('GET', download.url(), true);
     if (xhr.overrideMimeType) {
       xhr.overrideMimeType('text/javascript; charset=utf-8');
     }
@@ -101,9 +102,9 @@
         return;
       }
       if (xhr.status === 200) {
-        // A sync load may have filled the cache meanwhile: keep the first.
-        state[src.key] = state[src.key] || xhr.responseText;
-        flush(null, state[src.key]);
+        // A sync download may have filled the cache meanwhile: keep the first.
+        state[download.cacheKey] = state[download.cacheKey] || xhr.responseText;
+        flush(null, state[download.cacheKey]);
       } else {
         flush(new Error(kind + ' download failed: HTTP ' + xhr.status));
       }
@@ -112,28 +113,28 @@
   };
 
   X.prefetch = function () {
-    X.loadAsync('polyfill', function (err) {
-      X.record(err ? 'prefetch-error' : 'prefetched', null, err ? String(err.message || err) : '');
+    X.downloadAsync('polyfill', function (err) {
+      X.addJournalEntry(err ? 'prefetch-error' : 'prefetched', null, err ? String(err.message || err) : '');
     });
   };
 
-  X.polyfillOptionsFor = function (win, info) {
-    var cfg = X.state.config;
+  X.polyfillOptionsFor = function (win, detection) {
+    var config = X.state.config;
     return {
-      onlyIfNeeded: cfg.mode !== 'always',
-      autoload: !!(info && info.signals && info.signals.xmlStylesheetPI),
-      debug: !!cfg.debug
+      onlyIfNeeded: config.mode !== 'always',
+      autoload: !!(detection && detection.signals && detection.signals.xmlStylesheetPI),
+      debug: !!config.debug
     };
   };
 
   // Runs the polyfill source in the global scope of `win` (indirect eval in
   // that realm), so `window`, `document`, `XSLTProcessor` are the target's.
-  X.evalPolyfill = function (win, source, info) {
+  X.evalPolyfill = function (win, source, detection) {
     if (X.isPolyfilled(win)) {
       return true;
     }
-    var P = win.XSLTProcessor;
-    if (P && P.__bnzStub) {
+    var Processor = win.XSLTProcessor;
+    if (Processor && Processor.__bnzStub) {
       // Let the polyfill see "no native support" and install over the stub.
       try {
         delete win.XSLTProcessor;
@@ -141,38 +142,38 @@
         win.XSLTProcessor = undefined;
       }
     }
-    win.bnzXsltPatchPolyfillOptions = X.polyfillOptionsFor(win, info);
+    win.bnzXsltPatchPolyfillOptions = X.polyfillOptionsFor(win, detection);
     win.eval(source);
-    var ok = X.isPolyfilled(win) && typeof win.XSLTProcessor === 'function';
-    X.record(ok ? 'polyfill-installed' : 'polyfill-not-installed', win);
-    return ok;
+    var installed = X.isPolyfilled(win) && typeof win.XSLTProcessor === 'function';
+    X.addJournalEntry(installed ? 'polyfill-installed' : 'polyfill-not-installed', win);
+    return installed;
   };
 
-  X.installPolyfillSync = function (win, info) {
+  X.installPolyfillSync = function (win, detection) {
     try {
-      return X.evalPolyfill(win, X.loadSync('polyfill'), info);
+      return X.evalPolyfill(win, X.downloadSync('polyfill'), detection);
     } catch (e) {
       X.warn('sync polyfill install failed', X.safeUrl(win), e);
-      X.record('polyfill-error', win, String(e && e.message || e));
+      X.addJournalEntry('polyfill-error', win, String(e && e.message || e));
       return false;
     }
   };
 
-  X.installPolyfillAsync = function (win, info) {
-    X.loadAsync('polyfill', function (err, source) {
+  X.installPolyfillAsync = function (win, detection) {
+    X.downloadAsync('polyfill', function (err, source) {
       if (err) {
         X.warn('async polyfill download failed', err);
-        X.record('polyfill-error', win, String(err.message || err));
+        X.addJournalEntry('polyfill-error', win, String(err.message || err));
         return;
       }
       if (!X.docOf(win)) {
         return; // window closed or navigated cross-origin meanwhile
       }
       try {
-        X.evalPolyfill(win, source, info);
+        X.evalPolyfill(win, source, detection);
       } catch (e) {
         X.warn('async polyfill install failed', X.safeUrl(win), e);
-        X.record('polyfill-error', win, String(e && e.message || e));
+        X.addJournalEntry('polyfill-error', win, String(e && e.message || e));
       }
     });
   };
@@ -180,7 +181,7 @@
   // Lazy stub: defines XSLTProcessor where it is missing. The first
   // `new XSLTProcessor()` installs the real polyfill synchronously (from the
   // prefetched text when available), then returns a real instance.
-  X.installStub = function (win, info) {
+  X.installStub = function (win, detection) {
     if (X.isXsltUsable(win) || X.isPolyfilled(win)) {
       return false;
     }
@@ -188,18 +189,18 @@
       return true;
     }
     var Stub = function XSLTProcessor() {
-      if (!X.isPolyfilled(win) && !X.installPolyfillSync(win, info)) {
-        throw new Error(X.PREFIX + ' XSLT polyfill unavailable, see console.');
+      if (!X.isPolyfilled(win) && !X.installPolyfillSync(win, detection)) {
+        throw new Error(X.LOG_PREFIX + ' XSLT polyfill unavailable, see console.');
       }
       var Real = win.XSLTProcessor;
       if (typeof Real !== 'function' || Real === Stub) {
-        throw new Error(X.PREFIX + ' XSLT polyfill did not install XSLTProcessor.');
+        throw new Error(X.LOG_PREFIX + ' XSLT polyfill did not install XSLTProcessor.');
       }
       return new Real();
     };
     Stub.__bnzStub = true;
     win.XSLTProcessor = Stub;
-    X.record('stub-installed', win);
+    X.addJournalEntry('stub-installed', win);
     return true;
   };
 
@@ -225,7 +226,7 @@
       return null;
     }
     try {
-      var source = X.loadSync('loader');
+      var source = X.downloadSync('loader');
       win[X.SEED_KEY] = {
         clientUrl: X.state.clientUrl,
         polyfillSource: X.state.polyfillSource,
@@ -234,11 +235,11 @@
       };
       win.eval(source);
       api = X.loaderApiOf(win);
-      X.record(api ? 'loader-injected' : 'loader-inject-failed', win);
+      X.addJournalEntry(api ? 'loader-injected' : 'loader-inject-failed', win);
       return api;
     } catch (e) {
       X.warn('loader injection failed', X.safeUrl(win), e);
-      X.record('loader-inject-failed', win, String(e && e.message || e));
+      X.addJournalEntry('loader-inject-failed', win, String(e && e.message || e));
       return null;
     }
   };

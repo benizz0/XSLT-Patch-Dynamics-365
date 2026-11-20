@@ -6,12 +6,12 @@
 var bnz = window.bnz = window.bnz || {};
 bnz.XsltPatch = bnz.XsltPatch || {};
 
-(function (ns, loaderWindow) {
+(function (publicApi, loaderWindow) {
   'use strict';
 
   // Same version already evaluated in this realm (Dynamics may load the
   // library again): keep the running copy, its hooks and observers.
-  if (ns.isLoader === true && ns.version === '{{BNZ_VERSION}}') {
+  if (publicApi.isLoader === true && publicApi.version === '{{BNZ_VERSION}}') {
     return;
   }
 

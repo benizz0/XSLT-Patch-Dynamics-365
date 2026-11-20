@@ -7,6 +7,20 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
 ## [Non publié]
 
+### Modifié
+
+- **Lisibilité : renommage des noms internes**, sans changement de comportement. Fonctions
+  du loader (`X.upgradeIfEager` devient `X.upgradeToEagerIfNeeded`, `X.reloadIfMissed`
+  devient `X.recoverIfMissed`, `X.adoptOpener` devient `X.handOverToOpener`, `X.burst`
+  devient `X.startFastSweep`, `X.loadSync`/`X.loadAsync` deviennent
+  `X.downloadSync`/`X.downloadAsync`…), variables locales d'une lettre ou ambiguës dans le
+  loader, le wrapper du polyfill, `scripts/build.mjs` et le banc de test.
+  Rien de ce qui passe d'un royaume ou d'une version à l'autre n'est renommé : API publique
+  `bnz.XsltPatch.*`, clés de configuration, marqueurs `__bnz*`, champs de l'état partagé et
+  de la marque de document (`mark.action` et ses valeurs), champs JSON de `report()`.
+  Le champ `nativeUsable` du rapport garde son nom ; il vaut vrai aussi quand le polyfill
+  ou un shim tiers est présent (commentaire ajouté dans le code).
+
 ## [1.0.0.10] - 2026-11-19
 
 Correctif d'exécution CRM 8.2 : le paquet 1.0.0.9 s'importait, mais le loader n'arrivait pas
