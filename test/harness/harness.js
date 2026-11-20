@@ -75,6 +75,25 @@
       report('import precedence + inlined namespace (math:max)',
         /max=1200$/.test(includeResult) && includeResult.indexOf('BASE') === -1 ? 'pass' : 'fail', includeResult);
 
+      // Issue #5 - DYN-006: import precedence is compared before priority.
+      var textTransform = function (xslUrl, xmlText) {
+        try {
+          var processor = new XSLTProcessor();
+          processor.importStylesheet(harnessLoadXmlDoc(xslUrl));
+          var input = new DOMParser().parseFromString(xmlText, 'text/xml');
+          var holder = document.createElement('div');
+          holder.appendChild(processor.transformToFragment(input, document));
+          return holder.textContent.replace(/\s+/g, '');
+        } catch (e) {
+          return 'ERROR: ' + e.message;
+        }
+      };
+      var localWins = textTransform('/data/precedence-priority.xsl', '<item/>');
+      report('local rule beats imported priority="10" (issue #5)', localWins === 'MAIN' ? 'pass' : 'fail', localWins);
+      var precedence = textTransform('/data/precedence.xsl', '<root><a/><b/><c/><d/><e/><f/></root>');
+      report('nested + successive imports, named templates, variables (issue #5)',
+        precedence === 'A;Bb;Mc;P;Be;n-A1;|n-A|B' ? 'pass' : 'fail', precedence);
+
       // document() stays unsupported synchronously: clean error, and the Wasm
       // module must keep working for the next transform.
       var docErr = (function () {

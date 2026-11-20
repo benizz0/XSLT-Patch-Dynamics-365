@@ -7,6 +7,15 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
 ## [Non publié]
 
+### Corrigé
+
+- **Précédence `xsl:import` (DYN-006, #5).** L'aplatissement des imports ne gardait que le
+  départage à priorité égale : un template importé avec `priority="10"` l'emportait sur la
+  règle locale. Les règles reçoivent désormais une priorité explicite qui compare la précédence
+  d'import avant la priorité, imports successifs et imbriqués compris. Les templates nommés et
+  les variables globales sont départagés de la même façon ; un template `name` + `match`
+  écrasé par son nom garde sa règle `match`.
+
 ### Modifié
 
 - **Lisibilité : renommage des noms internes**, sans changement de comportement. Fonctions
