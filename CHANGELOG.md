@@ -14,8 +14,7 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
   règle locale. Les règles reçoivent désormais une priorité explicite qui compare la précédence
   d'import avant la priorité, imports successifs et imbriqués compris. Les templates nommés et
   les variables globales sont départagés de la même façon, par nom étendu (URI + nom local) ;
-  un template `name` + `match`
-  écrasé par son nom garde sa règle `match`.
+  un template `name` + `match` écrasé par son nom garde sa règle `match`.
 
 ### Modifié
 
