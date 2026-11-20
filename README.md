@@ -32,6 +32,11 @@ en 9.x, prendre `crm91` ou `crm92`.
 3. Vérifier : ouvrir une grille, puis lancer un rapport. Dans la console (F12) :
    `bnz.XsltPatch.diagnostics()`.
 
+> **Note :** après l'import, ou après une mise à jour de la solution, il peut être
+> nécessaire de recharger l'onglet Dynamics, voire de vider le cache du navigateur
+> (Ctrl+F5, ou Ctrl+Maj+Suppr). Un onglet ouvert avant l'import garde l'ancienne barre de
+> commande, et le navigateur peut servir une ancienne version des web resources.
+
 La langue de base de la solution est 1036 (français). Pour une org dont la langue de base
 est différente, changer `baseLanguage` dans `solution/solution.config.json` et
 [construire la solution](#construire-la-solution).
