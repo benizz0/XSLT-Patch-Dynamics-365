@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="/sim.js"></script>
+  <title>Frame avec shim XSLT tiers</title>
+  <!-- XSL island: makes the loader install the polyfill eagerly. -->
+  <script type="text/xsl">
+    <xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">
+      <xsl:template match="/"><xsl:value-of select="."/></xsl:template>
+    </xsl:stylesheet>
+  </script>
+  <script>
+    // Issue #4: a third-party XSLTProcessor shim the page installs late,
+    // while the loader is still downloading the polyfill.
+    window.harnessInstallShim = function () {
+      var Shim = function ShimXSLTProcessor() {
+        this.stylesheet = null;
+      };
+      Shim.prototype.importStylesheet = function (xsl) {
+        this.stylesheet = xsl;
+      };
+      Shim.prototype.transformToFragment = function (source, doc) {
+        var fragment = doc.createDocumentFragment();
+        fragment.appendChild(doc.createTextNode('SHIM'));
+        return fragment;
+      };
+      Shim.isHarnessShim = true;
+      window.XSLTProcessor = Shim;
+      return Shim;
+    };
+  </script>
+</head>
+<body>
+  <p>iframe : shim XSLT tiers installé pendant le téléchargement du polyfill (#4).</p>
+</body>
+</html>

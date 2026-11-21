@@ -129,6 +129,10 @@
 
   // Runs the polyfill source in the global scope of `win` (indirect eval in
   // that realm), so `window`, `document`, `XSLTProcessor` are the target's.
+  // Returns true when our polyfill is installed in `win`. Outside 'always'
+  // mode, returns false and leaves `win` alone when a usable XSLTProcessor
+  // (native or third-party shim) appeared since detection, e.g. while the
+  // source was downloading: upstream only recognizes the native one.
   X.evalPolyfill = function (win, source, detection) {
     if (X.isPolyfilled(win)) {
       return true;
@@ -141,6 +145,9 @@
       } catch (e) {
         win.XSLTProcessor = undefined;
       }
+    } else if (X.state.config.mode !== 'always' && X.isXsltUsable(win)) {
+      X.addJournalEntry('polyfill-skipped', win, 'usable XSLTProcessor present');
+      return false;
     }
     win.bnzXsltPatchPolyfillOptions = X.polyfillOptionsFor(win, detection);
     win.eval(source);
@@ -181,6 +188,8 @@
   // Lazy stub: defines XSLTProcessor where it is missing. The first
   // `new XSLTProcessor()` installs the real polyfill synchronously (from the
   // prefetched text when available), then returns a real instance.
+  // A page that kept a reference to the stub after a third-party shim
+  // replaced it gets an instance of that shim (the polyfill is not installed).
   X.installStub = function (win, detection) {
     if (X.isXsltUsable(win) || X.isPolyfilled(win)) {
       return false;
@@ -189,7 +198,7 @@
       return true;
     }
     var Stub = function XSLTProcessor() {
-      if (!X.isPolyfilled(win) && !X.installPolyfillSync(win, detection)) {
+      if (!X.isPolyfilled(win) && !X.installPolyfillSync(win, detection) && !X.isXsltUsable(win)) {
         throw new Error(X.LOG_PREFIX + ' XSLT polyfill unavailable, see console.');
       }
       var Real = win.XSLTProcessor;

@@ -36,6 +36,87 @@
     return f;
   }
 
+  // Issue #4: frame with an XSL island (eager install) whose polyfill
+  // download is held until the page has installed a third-party shim.
+  // The loader downloads with the root window's XMLHttpRequest; the cached
+  // source is dropped so a real (held) download happens.
+  async function runLateShimCase(mode) {
+    var state = window.__bnzXsltPatchState;
+    var savedMode = state.config.mode;
+    var savedSource = state.polyfillSource;
+    var RealXHR = window.XMLHttpRequest;
+    var held = [];
+    var GatedXHR = function () {
+      this.readyState = 0;
+      this.status = 0;
+      this.responseText = '';
+      this.onreadystatechange = null;
+    };
+    GatedXHR.prototype.open = function (method, url, async) { this.url = url; this.async = async !== false; };
+    GatedXHR.prototype.overrideMimeType = function () {};
+    GatedXHR.prototype.send = function () {
+      var self = this;
+      var finish = function () {
+        var real = new RealXHR();
+        real.open('GET', self.url, false);
+        real.overrideMimeType('text/javascript; charset=utf-8');
+        real.send(null);
+        self.status = real.status;
+        self.responseText = real.responseText;
+        self.readyState = 4;
+        if (self.onreadystatechange) self.onreadystatechange();
+      };
+      if (self.async) held.push(finish); else finish();
+    };
+    var frame = null;
+    var result = { mode: mode };
+    try {
+      state.config.mode = mode;
+      state.polyfillSource = null;
+      window.XMLHttpRequest = GatedXHR;
+      frame = document.createElement('iframe');
+      frame.src = '/shim.html?mode=' + mode;
+      frame.width = 600; frame.height = 60;
+      document.getElementById('frames').appendChild(frame);
+      await waitFor(function () {
+        var doc = frame.contentDocument;
+        var mark = doc && /shim\.html/.test(doc.URL) && doc.__bnzXsltPatchMark;
+        return mark && mark.action === 'eager' && held.length > 0;
+      }, 10000);
+      window.XMLHttpRequest = RealXHR;
+      var win = frame.contentWindow;
+      var stubRef = win.XSLTProcessor;
+      result.stubBefore = !!(stubRef && stubRef.__bnzStub);
+      var shim = win.harnessInstallShim();
+      var journalStart = state.journal.length;
+      while (held.length) held.shift()();
+      result.kept = win.XSLTProcessor === shim;
+      result.polyfilled = !!win.__bnzXsltPolyfillLoaded;
+      result.skipped = state.journal.slice(journalStart).some(function (entry) {
+        return entry.action === 'polyfill-skipped' && /shim\.html/.test(entry.url);
+      });
+      if (result.kept) {
+        var processor = new win.XSLTProcessor();
+        processor.importStylesheet(harnessLoadXmlDoc('/data/sample.xsl'));
+        result.works = processor.transformToFragment(win.document, win.document).textContent === 'SHIM';
+        try {
+          result.stubGivesShim = result.stubBefore && new stubRef() instanceof shim;
+        } catch (e) {
+          result.stubGivesShim = 'ERROR: ' + e.message;
+        }
+      }
+    } catch (e) {
+      result.error = e && e.message || String(e);
+    } finally {
+      window.XMLHttpRequest = RealXHR;
+      while (held.length) held.shift()();
+      state.config.mode = savedMode;
+      state.polyfillSource = state.polyfillSource || savedSource;
+      if (frame && frame.parentNode) frame.parentNode.removeChild(frame);
+    }
+    return result;
+  }
+
   document.getElementById('b-enable').onclick = function () { report('enable', 'pass', String(bnz.XsltPatch.Ribbon.enable())); };
   document.getElementById('b-top').onclick = function () { check('top manual', harnessRunTransform('Top'), 'Top'); };
   document.getElementById('b-frame').onclick = addFrame;
@@ -179,6 +260,17 @@
       await waitFor(function () { return frame.contentWindow && frame.contentWindow.harnessRunTransform && frame.contentDocument.readyState === 'complete'; }, 10000);
       await waitFor(function () { return frame.contentWindow.XSLTProcessor; }, 5000);
       check('dynamic iframe transform', frame.contentWindow.harnessRunTransform('Frame'), 'Frame');
+
+      // Issue #4 - a third-party shim appears while the eager polyfill is
+      // still downloading: kept in 'auto' mode, replaced in 'always' mode.
+      var shimAuto = await runLateShimCase('auto');
+      report('late shim kept in auto mode (#4)',
+        shimAuto.kept && shimAuto.works && !shimAuto.polyfilled && shimAuto.skipped ? 'pass' : 'fail', JSON.stringify(shimAuto));
+      report('stub reference kept by the page returns the late shim (#4)',
+        shimAuto.stubGivesShim === true ? 'pass' : 'fail', String(shimAuto.stubGivesShim));
+      var shimAlways = await runLateShimCase('always');
+      report('late shim replaced in always mode (#4)',
+        !shimAlways.kept && shimAlways.polyfilled && !shimAlways.skipped ? 'pass' : 'fail', JSON.stringify(shimAlways));
 
       var popup = window.open('/crmreports/viewer/viewer.html', 'bnzReport', 'width=700,height=300');
       if (!popup) {
