@@ -256,6 +256,11 @@ function checkRibbonLocations(targetKey, target, ribbon) {
 // a.b.c.d -> a*1000000 + b*10000 + c*100 + d (b, c, d < 100, result fits an Int32).
 function webResourceVer(targetKey, target, version) {
   const format = target.webResourceVerFormat || 'version';
+  // Regression guard for #13: dropping the key from the 8.x target must not go unnoticed.
+  assert(
+    !/^8\./.test(target.organizationVersion) || format === 'integer',
+    `Target ${targetKey}: CRM 8.x answers HTTP 500 to a dotted ?ver=, "webResourceVerFormat" must be "integer" (#13)`
+  );
   if (format === 'version') return version;
   assert(format === 'integer', `Target ${targetKey}: "webResourceVerFormat" must be "version" or "integer", got ${format}`);
   const [a, b, c, d] = version.split('.').map(Number);
