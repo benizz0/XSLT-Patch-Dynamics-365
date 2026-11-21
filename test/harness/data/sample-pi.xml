@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<?xml-stylesheet type="text/xsl" href="sample.xsl"?>
+<!-- XML document rendered through its xml-stylesheet processing instruction
+     (eager install with autoload). DYN-010: upstream's createElement patch
+     must stay in place on such a document. -->
+<report name="Comptes">
+  <row id="1" name="Contoso" revenue="1200" />
+  <row id="2" name="Fabrikam" revenue="800" />
+  <row id="3" name="Éléonore &amp; fils" revenue="430" />
+</report>
