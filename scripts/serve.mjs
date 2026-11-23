@@ -12,6 +12,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const port = Number(process.argv[2] || process.env.PORT || 8282);
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
+  '.htm': 'text/html; charset=utf-8',
   '.aspx': 'text/html; charset=utf-8',
   '.js': 'text/javascript', // no charset on purpose: mimics Dynamics (DYN-004)
   '.xml': 'text/xml',

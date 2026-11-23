@@ -17,6 +17,25 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
   natif) ; document XML avec `<?xml-stylesheet?>` rendu par le polyfill, `createElement`
   laissé patché sur ce document (DYN-010) ; fermeture refusée pendant la réouverture et URL
   déjà rechargée, qui n'est ni rouverte ni rechargée (#1).
+- **Banc : pages calquées sur une org 9.2 online, 12 cas.** Relevé fait en lecture seule
+  sur la Recherche avancée et le rapport « Résumé du compte ». `mscrm-xsl.js` reproduit
+  `Mscrm.XslTemplate`, qui choisit XSLT natif ou ActiveX à chaque appel, puis transforme vers
+  le document d'entrée. Pour SSRS, `viewer.aspx` construit le résumé du filtre par XSLT, puis
+  poste son formulaire dans l'iframe statique `resultFrame`. Sans XSLT, rien n'est posté et le
+  rapport reste blanc, sans erreur en console. Pour la Recherche avancée, `contentIFrame0` est
+  écrite dans le HTML puis naviguée par script, et la liste des champs est calculée à la
+  demande. Un dernier cas ouvre la Recherche avancée dans un onglet sans opener : la
+  bibliothèque du ribbon y est évaluée dans l'iframe, `enable()` y délègue à une copie du
+  royaume racine, et l'iframe manquée est rechargée une fois. La Recherche avancée seule ne
+  s'amorce pas d'elle-même (limite connue depuis 1.0.0.1, couverte par l'injection depuis
+  l'opener) : le banc le note en `INFO`. `serve.mjs` sert `.htm`.
+- **Banc : 5 cas de rendu**, par styles calculés et positions, sans capture d'écran (polices
+  différentes entre Windows et la CI Linux). Ribbon legacy : 135 px de haut, groupes sur une
+  ligne, sans puces (DYN-008). Fragment XSLT inséré dans la page : vrai tableau HTML, CSS de
+  la page appliquée. Document `<?xml-stylesheet?>` (`data/render.xml`) : plus aucun style de
+  la visionneuse XML de Chrome (marges de `body`, `white-space`, police du tableau), règles
+  quirks d'une sortie HTML sans doctype émulées (taille de police du tableau, position des
+  puces de liste, DYN-105), tableau correctement disposé.
 
 ### Modifié
 

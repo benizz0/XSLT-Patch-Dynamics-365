@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<?xml-stylesheet type="text/xsl" href="render.xsl"?>
+<!-- Rendering check: no XHTML in the source, so Chrome's XML viewer runs first
+     (view-source styles); HTML output without doctype renders in quirks mode
+     natively. See render.xsl and the "render:" cases of harness.js. -->
+<report name="Comptes">
+  <row name="Contoso" revenue="1200" />
+  <row name="Fabrikam" revenue="800" />
+</report>
