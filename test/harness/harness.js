@@ -193,6 +193,10 @@
       var expandedNames = textTransform('/data/precedence-ns.xsl', '<x/>');
       report('named templates compared by expanded name (DYN-006)',
         expandedNames === 'Ra;Rb;over-main;' ? 'pass' : 'fail', expandedNames);
+      // Expected value checked against native libxslt 1.1.45.
+      var includedImport = textTransform('/data/precedence-inc-import.xsl', '<r><x/><y/><z/><v/><w/></r>');
+      report('import inside an include, negative priority, modes (DYN-006)',
+        includedImport === 'J;My;Mz;Iv;Jw;Mm;' ? 'pass' : 'fail', includedImport);
 
       // document() stays unsupported synchronously: clean error, and the Wasm
       // module must keep working for the next transform.
@@ -260,6 +264,26 @@
       await waitFor(function () { return frame.contentWindow && frame.contentWindow.harnessRunTransform && frame.contentDocument.readyState === 'complete'; }, 10000);
       await waitFor(function () { return frame.contentWindow.XSLTProcessor; }, 5000);
       check('dynamic iframe transform', frame.contentWindow.harnessRunTransform('Frame'), 'Frame');
+
+      // <?xml-stylesheet?> document (eager install + upstream autoload).
+      // DYN-010 must leave upstream's createElement patch on an XML document.
+      var xmlFrame = document.createElement('iframe');
+      xmlFrame.src = '/data/sample-pi.xml';
+      xmlFrame.width = 600; xmlFrame.height = 80;
+      document.getElementById('frames').appendChild(xmlFrame);
+      var xmlRendered = await waitFor(function () {
+        var doc = xmlFrame.contentDocument;
+        var text = doc && doc.documentElement ? doc.documentElement.textContent : '';
+        return /Rapport - Comptes/.test(text) && /Contoso\s*1200/.test(text) ? text : null;
+      }, 20000).catch(function (e) { return 'ERROR: ' + e.message; });
+      report('xml-stylesheet document rendered by the polyfill', /Rapport - Comptes/.test(xmlRendered) ? 'pass' : 'fail',
+        String(xmlRendered).replace(/\s+/g, ' ').slice(0, 80));
+      var xmlInfo = xmlFrame.contentWindow.__bnzXsltPolyfillLoaded || {};
+      report('createElement patch kept on an XML document (DYN-010)',
+        xmlInfo.installed === true && !!xmlInfo.restored &&
+        xmlInfo.restored.indexOf('Document.prototype.createElement') === -1 &&
+        xmlInfo.restored.indexOf('document.createElement') === -1 ? 'pass' : 'fail',
+        JSON.stringify(xmlInfo.restored || null));
 
       // Issue #4 - a third-party shim appears while the eager polyfill is
       // still downloading: kept in 'auto' mode, replaced in 'always' mode.
@@ -396,6 +420,87 @@
         report('blocked reopen: reload guard recorded (recovery at most once)',
           guard.some(function (u) { return /case=blocked/.test(u); }) ? 'pass' : 'fail', JSON.stringify(guard));
         af4.close();
+      }
+
+      // Runs the loader late in `win`, as its own ribbon would.
+      var runLateLoader = function (win) {
+        var request = new XMLHttpRequest();
+        request.open('GET', '/WebResources/bnz_/xsltpatch/loader.js', false);
+        request.send(null);
+        win.eval(request.responseText);
+        win.bnz.XsltPatch.Ribbon.enable();
+      };
+      // Last journal index of `action` for a URL matching `urlPattern`, or -1.
+      var journalIndex = function (action, urlPattern) {
+        var entries = window.__bnzXsltPatchState.journal;
+        var found = -1;
+        for (var k = 0; k < entries.length; k++) {
+          if (entries[k].action === action && urlPattern.test(entries[k].url)) found = k;
+        }
+        return found;
+      };
+
+      // Issue #1 - the replacement opens, but the missed window refuses
+      // window.close() (not script-closable, e.g. not opened by script): keep
+      // the original, close the replacement, fall back to the bounded reload.
+      var af5 = rawOpen.call(window, '/main.aspx?pagetype=advancedfind&case=closerefused', 'bnzAF5', POPUP);
+      if (af5) {
+        await waitFor(afResult(af5), 20000).catch(function () { return null; });
+        var replacements = [];
+        var openHook5 = window.open;
+        var rawOriginal5 = openHook5.__bnzOriginal;
+        af5.close = function () { /* refused */ };
+        openHook5.__bnzOriginal = function () {
+          var opened = rawOriginal5.apply(this, arguments);
+          replacements.push(opened);
+          return opened;
+        };
+        var firstDoc5 = af5.document;
+        try {
+          runLateLoader(af5);
+        } finally {
+          openHook5.__bnzOriginal = rawOriginal5;
+        }
+        report('close refused: replacement opened, then closed again',
+          replacements.length === 1 && !!replacements[0] && replacements[0].closed === true ? 'pass' : 'fail',
+          'opened=' + replacements.length + ' closed=' + (replacements[0] ? replacements[0].closed : 'n/a'));
+        var refusedAt = journalIndex('reopen-close-refused', /case=closerefused/);
+        var reload5At = journalIndex('reload', /case=closerefused/);
+        report('close refused: falls back to the bounded reload',
+          refusedAt !== -1 && reload5At > refusedAt ? 'pass' : 'fail', 'refused=' + refusedAt + ' reload=' + reload5At);
+        var reloaded5 = await waitFor(function () {
+          return af5.document !== firstDoc5 && af5.document.readyState === 'complete' ? af5.document : null;
+        }, 20000).catch(function () { return null; });
+        report('close refused: original window kept open and reloaded',
+          !af5.closed && reloaded5 ? 'pass' : 'fail', af5.closed ? 'closed' : (reloaded5 ? 'reloaded' : 'not reloaded'));
+        af5.close();
+      }
+
+      // Issue #1 - the reload guard is read before any reopen: a window whose
+      // URL was already reloaded once is neither reopened nor reloaded again.
+      var af6 = rawOpen.call(window, '/main.aspx?pagetype=advancedfind&case=guarded', 'bnzAF6', POPUP);
+      if (af6) {
+        await waitFor(afResult(af6), 20000).catch(function () { return null; });
+        try {
+          af6.sessionStorage.setItem('bnz.xsltpatch.reloaded', JSON.stringify([af6.location.href]));
+        } catch (e) { /* the assertion below fails */ }
+        var opens6 = 0;
+        var openHook6 = window.open;
+        var rawOriginal6 = openHook6.__bnzOriginal;
+        openHook6.__bnzOriginal = function () { opens6++; return rawOriginal6.apply(this, arguments); };
+        var firstDoc6 = af6.document;
+        try {
+          runLateLoader(af6);
+        } finally {
+          openHook6.__bnzOriginal = rawOriginal6;
+        }
+        await new Promise(function (resolve) { setTimeout(resolve, 500); });
+        var skippedAt = journalIndex('reload-skipped', /case=guarded/);
+        var mark6 = firstDoc6.__bnzXsltPatchMark;
+        report('guarded URL: no reopen, no second reload (recovery at most once)',
+          skippedAt !== -1 && opens6 === 0 && !af6.closed && af6.document === firstDoc6 && !!mark6 && mark6.action !== 'reload' ? 'pass' : 'fail',
+          'skipped=' + skippedAt + ' opens=' + opens6 + ' mark=' + (mark6 ? mark6.action : 'none'));
+        af6.close();
       }
     } catch (e) {
       report('autotest crashed', 'fail', e && e.stack || String(e));

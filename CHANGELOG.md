@@ -7,6 +7,17 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
 ## [Non publié]
 
+### Ajouté
+
+- **Build : garde-fou pour #13.** Une cible dont `organizationVersion` commence par `8.` doit
+  avoir `"webResourceVerFormat": "integer"`. Sans la clé, le build passait et le loader 8.2
+  repartait avec `?ver=1.0.0.10` (HTTP 500).
+- **Banc : 7 cas de non-régression** sur les correctifs non publiés : import dans un module
+  inclus, priorité négative et modes (DYN-006, attentes vérifiées contre libxslt 1.1.45
+  natif) ; document XML avec `<?xml-stylesheet?>` rendu par le polyfill, `createElement`
+  laissé patché sur ce document (DYN-010) ; fermeture refusée pendant la réouverture et URL
+  déjà rechargée, qui n'est ni rouverte ni rechargée (#1).
+
 ### Modifié
 
 - **Lisibilité : renommage des noms internes**, sans changement de comportement. Fonctions
