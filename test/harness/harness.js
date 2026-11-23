@@ -260,6 +260,32 @@
       })();
       report('fragment into the HTML page stays HTML (upstream behaviour)', htmlFrag ? 'pass' : 'fail');
 
+      // Rendering: XSLT output inserted in the page lays out as an HTML table
+      // and takes the page's CSS (wrong namespace = unstyled inline text).
+      var renderHost = document.createElement('div');
+      document.getElementById('frames').appendChild(renderHost);
+      var pageLayout = (function () {
+        try {
+          var processor = new XSLTProcessor();
+          processor.importStylesheet(harnessLoadXmlDoc('/data/sample.xsl'));
+          renderHost.appendChild(processor.transformToFragment(harnessLoadXml('/data/sample.xml'), document));
+          var cells = renderHost.querySelectorAll('td');
+          var style = getComputedStyle(cells[0]);
+          var caption = renderHost.querySelector('caption');
+          var problems = [];
+          if (cells.length !== 6 || !(cells[0] instanceof HTMLTableCellElement)) problems.push('cells=' + cells.length);
+          if (style.display !== 'table-cell') problems.push('display=' + style.display);
+          if (style.paddingLeft !== '6px') problems.push('page CSS padding=' + style.paddingLeft);
+          if (cells[0].offsetTop !== cells[1].offsetTop || cells[1].offsetLeft <= cells[0].offsetLeft) problems.push('row not laid out');
+          if (cells[2].offsetTop <= cells[0].offsetTop) problems.push('rows not stacked');
+          if (!caption || getComputedStyle(caption).display !== 'table-caption') problems.push('caption');
+          return problems.join(', ');
+        } catch (e) {
+          return 'ERROR: ' + e.message;
+        }
+      })();
+      report('render: fragment in the page laid out as a table, page CSS applied', pageLayout === '' ? 'pass' : 'fail', pageLayout);
+
       var frame = addFrame();
       await waitFor(function () { return frame.contentWindow && frame.contentWindow.harnessRunTransform && frame.contentDocument.readyState === 'complete'; }, 10000);
       await waitFor(function () { return frame.contentWindow.XSLTProcessor; }, 5000);
@@ -284,6 +310,53 @@
         xmlInfo.restored.indexOf('Document.prototype.createElement') === -1 &&
         xmlInfo.restored.indexOf('document.createElement') === -1 ? 'pass' : 'fail',
         JSON.stringify(xmlInfo.restored || null));
+
+      // Rendering of an <?xml-stylesheet?> document replaced by the polyfill:
+      // no leftover of Chrome's XML viewer styles, quirks rules of a doctype-less
+      // HTML output emulated (the polyfilled document can't switch modes).
+      var renderFrame = document.createElement('iframe');
+      renderFrame.src = '/data/render.xml';
+      renderFrame.width = 600; renderFrame.height = 200;
+      document.getElementById('frames').appendChild(renderFrame);
+      var renderDoc = await waitFor(function () {
+        var doc = renderFrame.contentDocument;
+        return doc && doc.getElementById('t') && doc.getElementById('p') && doc.title === 'Rendu' ? doc : null;
+      }, 20000).catch(function () { return null; });
+      if (!renderDoc) {
+        report('render: xml-stylesheet document', 'fail', 'not rendered');
+      } else {
+        var renderWin = renderFrame.contentWindow;
+        var css = function (id, selector) {
+          var el = selector ? renderDoc.querySelector(selector) : renderDoc.getElementById(id);
+          return renderWin.getComputedStyle(el);
+        };
+        var bodyStyle = renderWin.getComputedStyle(renderDoc.body);
+        var tableStyle = css('t');
+        var viewer = [];
+        if (!(renderDoc.documentElement instanceof renderWin.HTMLHtmlElement)) viewer.push('not an HTML document');
+        if (bodyStyle.marginLeft !== '8px' || bodyStyle.marginTop !== '8px') viewer.push('body margin=' + bodyStyle.marginTop + '/' + bodyStyle.marginLeft);
+        if (tableStyle.whiteSpace !== 'normal') viewer.push('table white-space=' + tableStyle.whiteSpace);
+        if (tableStyle.fontFamily !== bodyStyle.fontFamily) viewer.push('table font=' + tableStyle.fontFamily);
+        if (css(null, 'td').verticalAlign !== 'middle') viewer.push('td vertical-align=' + css(null, 'td').verticalAlign);
+        if (renderDoc.documentElement.attributes.length !== 0) viewer.push('html attributes left');
+        report('render: no XML viewer style left on the polyfilled document', viewer.length ? 'fail' : 'pass', viewer.join(', '));
+        var quirks = [];
+        if (bodyStyle.fontSize !== '10px') quirks.push('body font-size=' + bodyStyle.fontSize);
+        if (tableStyle.fontSize !== '16px') quirks.push('table font-size=' + tableStyle.fontSize + ' (quirks: medium)');
+        // HTML spec, quirks lists: a loose li is "inside", a li in a list inherits "outside".
+        if (css('loose').listStylePosition !== 'inside') quirks.push('loose li=' + css('loose').listStylePosition);
+        if (css('listed').listStylePosition !== 'outside') quirks.push('li in ul=' + css('listed').listStylePosition);
+        if (css('p').fontSize !== '10px') quirks.push('p font-size=' + css('p').fontSize);
+        report('render: quirks rules of a doctype-less HTML output emulated (DYN-105)', quirks.length ? 'fail' : 'pass',
+          quirks.join(', ') || 'compatMode=' + renderDoc.compatMode);
+        var renderCells = renderDoc.querySelectorAll('td');
+        var renderHeads = renderDoc.querySelectorAll('th');
+        report('render: xml-stylesheet table laid out (header row, 2 rows)',
+          renderHeads.length === 2 && renderCells.length === 4 && css(null, 'td').display === 'table-cell' &&
+          renderCells[0].offsetTop === renderCells[1].offsetTop && renderCells[2].offsetTop > renderCells[0].offsetTop &&
+          renderHeads[0].offsetTop < renderCells[0].offsetTop ? 'pass' : 'fail',
+          renderDoc.getElementById('t').offsetWidth + 'x' + renderDoc.getElementById('t').offsetHeight);
+      }
 
       // Issue #4 - a third-party shim appears while the eager polyfill is
       // still downloading: kept in 'auto' mode, replaced in 'always' mode.
@@ -332,6 +405,14 @@
           fallbackLink ? fallbackLink.getAttribute('href') : 'no fallback link');
         report('cui.css fallback added once',
           af.document.querySelectorAll('link[data-bnz-css-fallback]').length === 1 ? 'pass' : 'fail');
+        // DYN-008: without cui.css the ribbon was raw text, groups stacked.
+        var ribbon = af.document.getElementById('crmRibbonManager');
+        var groups = ribbon ? ribbon.querySelectorAll('.ms-cui-group') : [];
+        report('render: legacy ribbon laid out (135 px, groups in one row, no bullets)',
+          ribbon && ribbon.offsetHeight === 135 && groups.length === 3 &&
+          groups[0].offsetTop === groups[2].offsetTop && groups[2].offsetLeft > groups[0].offsetLeft &&
+          af.getComputedStyle(groups[0]).listStyleType === 'none' ? 'pass' : 'fail',
+          ribbon ? 'height=' + ribbon.offsetHeight + ' tops=' + Array.prototype.map.call(groups, function (g) { return g.offsetTop; }).join(',') : 'no ribbon');
         af.close();
       }
 
@@ -501,6 +582,114 @@
           skippedAt !== -1 && opens6 === 0 && !af6.closed && af6.document === firstDoc6 && !!mark6 && mark6.action !== 'reload' ? 'pass' : 'fail',
           'skipped=' + skippedAt + ' opens=' + opens6 + ' mark=' + (mark6 ? mark6.action : 'none'));
         af6.close();
+      }
+
+      // Pages below follow shapes read on a 9.2 online org (see the comments
+      // in viewer.aspx, QueryBuilder.aspx and mscrm-xsl.js).
+      var fieldListOk = function (out) {
+        return typeof out === 'string' && /<option [^>]*entityName="account"[^>]*>Nom<\/option>/.test(out);
+      };
+      var resultFrameOf = function (win) {
+        var frameEl = win.document.getElementById('resultFrame');
+        return frameEl && frameEl.contentWindow;
+      };
+
+      // SSRS viewer.aspx: filter summary through Mscrm.XslTemplate on load, then
+      // the form posts into the static resultFrame.
+      var rv = window.open('/crmreports/viewer/viewer.aspx?action=run', 'bnzReport2', POPUP);
+      if (rv) {
+        var posted = await waitFor(function () {
+          var result = resultFrameOf(rv);
+          return result && /\/reportviewer\.aspx$/.test(result.location.pathname) &&
+            result.document.readyState === 'complete' ? result : null;
+        }, 20000).catch(function () { return null; });
+        report('viewer.aspx: filter summary, then POST into resultFrame',
+          posted && /^<summary>accountid eq 1<\/summary>$/.test(rv.__viewerSummary) ? 'pass' : 'fail', String(rv.__viewerSummary));
+        var rvInfo = rv.__bnzXsltPolyfillLoaded || {};
+        report('viewer.aspx: XSLT calls traced, no error',
+          rvInfo.calls >= 1 && rvInfo.errors && rvInfo.errors.length === 0 ? 'pass' : 'fail',
+          'calls=' + rvInfo.calls + ' errors=' + (rvInfo.errors ? rvInfo.errors.length : 'n/a'));
+        var rvMark = posted && posted.document.__bnzXsltPatchMark;
+        report('reportviewer.aspx (POST navigation of a static iframe) processed',
+          rvMark ? 'pass' : 'fail', rvMark ? rvMark.action : 'no mark');
+        rv.close();
+      }
+      var rvRaw = rawOpen.call(window, '/crmreports/viewer/viewer.aspx?action=run&case=control', 'bnzReport3', POPUP);
+      if (rvRaw) {
+        var rawSummary = await waitFor(function () { return rvRaw.__viewerSummary; }, 20000).catch(function (e) { return 'TIMEOUT ' + e.message; });
+        var rawResult = resultFrameOf(rvRaw);
+        report('control: unpatched viewer.aspx never posts (blank report)',
+          /^ERROR/.test(rawSummary) && rawResult && /\/blank\.htm$/.test(rawResult.location.pathname) ? 'pass' : 'fail', String(rawSummary));
+        rvRaw.close();
+      }
+
+      // Advanced Find: contentIFrame0 in the markup, navigated by script; XSLT
+      // on demand through Mscrm.XslTemplate.
+      var af7 = window.open('/main.aspx?pagetype=advancedfind&shape=real', 'bnzAF7', POPUP);
+      if (af7) {
+        var qb7 = await waitFor(function () {
+          var frameEl = af7.document.getElementById('contentIFrame0');
+          var fw = frameEl && frameEl.contentWindow;
+          return fw && fw.harnessGetFieldList && fw.document.readyState === 'complete' ? fw : null;
+        }, 20000).catch(function () { return null; });
+        var fields7 = qb7 ? qb7.harnessGetFieldList() : 'no frame';
+        report('real-shape advanced find: field list through Mscrm.XslTemplate', fieldListOk(fields7) ? 'pass' : 'fail', fields7);
+        var mark7 = qb7 && qb7.document.__bnzXsltPatchMark;
+        report('contentIFrame0 (innerHTML, navigated by script) patched eagerly',
+          mark7 && mark7.action === 'eager' ? 'pass' : 'fail', mark7 ? mark7.action + (mark7.missed ? ' (missed)' : '') : 'no mark');
+        var staticFrames = qb7 ? ['resultFrame', 'downloadXmlFrame'].filter(function (id) {
+          var el = qb7.document.getElementById(id);
+          return el && el.contentDocument && el.contentDocument.__bnzXsltPatchMark;
+        }) : [];
+        report('static blank.htm iframes of the page processed', staticFrames.length === 2 ? 'pass' : 'fail', staticFrames.join(','));
+        af7.close();
+      }
+
+      // Advanced Find in a tab of its own (no opener), as read on the org: the
+      // ribbon library is evaluated in the advfind frame, but its Enable rule
+      // never runs (known limit since 1.0.0.1: the patch comes from the opener's
+      // injection). enable() called from that frame must bootstrap through a
+      // copy in the root realm, then recover the frame once.
+      var af8 = rawOpen.call(window, '/main.aspx?pagetype=advancedfind&shape=real&case=direct', 'bnzAF8', POPUP);
+      if (af8) {
+        try { af8.opener = null; } catch (e) { /* the adoption below would differ */ }
+        var frame8 = await waitFor(function () {
+          var frameEl = af8.document.getElementById('contentIFrame0');
+          var fw = frameEl && frameEl.contentWindow;
+          return fw && fw.harnessGetFieldList && fw.document.readyState === 'complete' ? fw : null;
+        }, 20000).catch(function () { return null; });
+        if (frame8) {
+          var controlFields = frame8.harnessGetFieldList();
+          report('control: field list fails without the patch', /^ERROR/.test(controlFields) ? 'pass' : 'fail', controlFields);
+          var library = new XMLHttpRequest();
+          library.open('GET', '/WebResources/bnz_/xsltpatch/loader.js', false);
+          library.send(null);
+          frame8.eval(library.responseText);
+          report('ribbon library evaluated without enable(): no bootstrap (known limit, opener injection covers it)', 'info',
+            'root state=' + !!af8.__bnzXsltPatchState + ' stub=' + typeof frame8.XSLTProcessor);
+          var firstDoc8 = frame8.document;
+          frame8.bnz.XsltPatch.Ribbon.enable();
+          var rootState8 = af8.__bnzXsltPatchState;
+          var frameCopy = frame8.bnz.XsltPatch.diagnostics().copyId;
+          var rootCopy = af8.bnz && af8.bnz.XsltPatch && af8.bnz.XsltPatch.isLoader ? af8.bnz.XsltPatch.diagnostics().copyId : null;
+          report('enable() in a frame realm delegates to a copy in the root realm',
+            rootState8 && rootState8.active && rootCopy && rootState8.ownerId === rootCopy && frameCopy !== rootCopy ? 'pass' : 'fail',
+            'owner=' + (rootState8 && rootState8.ownerId) + ' root=' + rootCopy + ' frame=' + frameCopy);
+          var reloaded8 = await waitFor(function () {
+            var doc = frame8.document;
+            return doc !== firstDoc8 && doc.readyState === 'complete' && frame8.harnessGetFieldList &&
+              typeof frame8.XSLTProcessor === 'function' ? frame8 : null;
+          }, 20000).catch(function () { return null; });
+          var reloadAt8 = rootState8 ? rootState8.journal.filter(function (entry) {
+            return entry.action === 'reload' && /QueryBuilder\.aspx/.test(entry.url);
+          }).length : 0;
+          report('missed advfind frame reloaded once', reloaded8 && reloadAt8 === 1 ? 'pass' : 'fail', 'reloads=' + reloadAt8);
+          var fields8 = reloaded8 ? reloaded8.harnessGetFieldList() : 'not reloaded';
+          report('field list works after the recovery', fieldListOk(fields8) ? 'pass' : 'fail', fields8);
+        } else {
+          report('direct advanced find tab', 'fail', 'frame not loaded');
+        }
+        af8.close();
       }
     } catch (e) {
       report('autotest crashed', 'fail', e && e.stack || String(e));

@@ -19,7 +19,23 @@
       if (q.indexOf('pagetype=advancedfind') !== -1) {
         document.title = 'Advanced Find';
         // Legacy CUI ribbon: visible "undefined" when cui.css is missing.
-        shell.innerHTML = '<span id="ribboninstruction" class="ms-cui-hidden">undefined</span>';
+        shell.innerHTML = '<span id="ribboninstruction" class="ms-cui-hidden">undefined</span>' +
+          '<div id="crmRibbonManager" class="ms-cui-ribbon"><ul class="ms-cui-tabBody">' +
+          '<li class="ms-cui-group"><a class="ms-cui-ctl-large">Résultats</a></li>' +
+          '<li class="ms-cui-group"><a class="ms-cui-ctl-large">Enregistrer</a></li>' +
+          '<li class="ms-cui-group"><a class="ms-cui-ctl-large">Effacer</a></li>' +
+          '</ul></div>';
+        if (q.indexOf('shape=real') !== -1) {
+          // Shape read on a 9.2 online org: contentIFrame0 sits in the markup
+          // (div > div) without src and is navigated by script. innerHTML
+          // keeps it away from the appendChild hook (MutationObserver path).
+          var host = document.createElement('div');
+          host.innerHTML = '<div><iframe id="contentIFrame0" name="contentIFrame0" frameborder="0" title=""' +
+            ' style="width: 600px; height: 150px"></iframe></div>';
+          shell.appendChild(host);
+          document.getElementById('contentIFrame0').contentWindow.location.replace('/AdvancedFind/QueryBuilder.aspx');
+          return;
+        }
         var f = document.createElement('iframe');
         f.src = '/AdvancedFind/AdvFind.aspx';
         f.width = 600;
