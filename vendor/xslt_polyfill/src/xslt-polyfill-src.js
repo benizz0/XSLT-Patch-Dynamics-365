@@ -424,7 +424,7 @@
     // xsl:apply-imports has nothing left to apply. document() is not covered.
     const DYN_XSLNS = 'http://www.w3.org/1999/XSL/Transform';
     const DYN_XMLNSNS = 'http://www.w3.org/2000/xmlns/';
-    window.__bnzXsltInlineReport = window.__bnzXsltInlineReport || { inlined: [], failed: [] };
+    window.__bnzXsltInlineReport = window.__bnzXsltInlineReport || { inlined: [], failed: [], truncated: [] };
 
     function dynLoadXmlSync(url) {
       if (!isSameOriginAllowedUrl(url)) {
@@ -650,13 +650,35 @@
       }
     }
 
+    // Nesting depth and number of inlined copies beyond which the remaining
+    // references are dropped and listed in report.truncated.
+    const DYN_MAX_DEPTH = 16;
+    const DYN_MAX_COPIES = 256;
+
+    // Each URL is fetched once per stylesheet (ctx.cache, failures included)
+    // and every copy works on its own clone.
+    function dynLoadCached(href, ctx) {
+      if (!ctx.cache.has(href)) {
+        ctx.cache.set(href, dynLoadXmlSync(href));
+      }
+      const doc = ctx.cache.get(href);
+      return doc ? doc.cloneNode(true) : null;
+    }
+
     // ctx.next is a post-order counter: a module gets its import precedence
     // after all its imports (and the imports of its includes), so it ranks
     // above them, and a later import ranks above an earlier one. An included
     // module (isInclude) shares the precedence of the module including it.
-    function dynInlineDoc(doc, baseUrl, seen, depth, report, ctx, isInclude) {
+    // A module imported from two places appears twice in the import tree
+    // (XSLT 1.0, 2.6.2) and is inlined twice, each copy with its own
+    // precedence. ancestors holds the chain of modules being inlined: a
+    // reference to one of them is a cycle and is dropped. unitIncludes holds
+    // the modules already included at the current precedence: a repeated
+    // include is inlined once, since its definitions would clash at the same
+    // precedence. ctx.copies bounds the total size of a shared import graph.
+    function dynInlineDoc(doc, baseUrl, depth, report, ctx, isInclude, ancestors, unitIncludes) {
       const root = doc.documentElement;
-      if (!root || depth > 16) {
+      if (!root) {
         return;
       }
       const children = Array.from(root.children);
@@ -674,27 +696,39 @@
         } catch {
           href = null;
         }
-        const sub = href && !seen.has(href) ? dynLoadXmlSync(href) : null;
-        if (!sub) {
-          if (href && !seen.has(href)) {
-            report.failed.push(href);
-          }
+        if (!href || ancestors.has(href) || (!isImport && unitIncludes.has(href))) {
           el.remove();
           continue;
         }
-        seen.add(href);
+        if (depth > DYN_MAX_DEPTH || ctx.copies >= DYN_MAX_COPIES) {
+          report.truncated.push(href);
+          el.remove();
+          continue;
+        }
+        const sub = dynLoadCached(href, ctx);
+        if (!sub) {
+          report.failed.push(href);
+          el.remove();
+          continue;
+        }
+        ctx.copies++;
         report.inlined.push(href);
         if (isImport) {
           ctx.imports++;
+        } else {
+          unitIncludes.add(href);
         }
-        dynInlineDoc(sub, href, seen, depth + 1, report, ctx, !isImport);
+        ancestors.add(href);
+        dynInlineDoc(sub, href, depth + 1, report, ctx, !isImport, ancestors,
+          isImport ? new Set() : unitIncludes);
+        ancestors.delete(href);
         const subRoot = sub.documentElement;
         dynMergePrefixList(subRoot, root, 'exclude-result-prefixes');
         dynMergePrefixList(subRoot, root, 'extension-element-prefixes');
         const anchor = isImport ? ownFirst : el;
         for (const child of Array.from(subRoot.children)) {
           if (isRef(child)) {
-            continue; // left unresolved (nesting too deep)
+            continue; // already resolved or dropped above
           }
           const copy = doc.importNode(child, true);
           dynAdoptNamespaces(subRoot, root, copy);
@@ -722,10 +756,18 @@
           return stylesheetText;
         }
         const report = window.__bnzXsltInlineReport;
-        const before = report.inlined.length + report.failed.length;
-        const ctx = { next: 0, imports: 0 };
-        dynInlineDoc(doc, baseUrl, new Set(), 0, report, ctx, false);
-        if (report.inlined.length + report.failed.length === before) {
+        report.truncated = report.truncated || [];
+        const count = () => report.inlined.length + report.failed.length + report.truncated.length;
+        const before = count();
+        const ctx = { next: 0, imports: 0, copies: 0, cache: new Map() };
+        const ancestors = new Set();
+        try {
+          ancestors.add(new URL(baseUrl).href);
+        } catch {
+          // no usable base URL: cycles back to the root are cut one level later
+        }
+        dynInlineDoc(doc, baseUrl, 0, report, ctx, false, ancestors, new Set());
+        if (count() === before) {
           return stylesheetText;
         }
         const root = doc.documentElement;
@@ -738,6 +780,7 @@
         }
         if (report.inlined.length > 200) report.inlined.splice(0, report.inlined.length - 200);
         if (report.failed.length > 200) report.failed.splice(0, report.failed.length - 200);
+        if (report.truncated.length > 200) report.truncated.splice(0, report.truncated.length - 200);
         return new XMLSerializer().serializeToString(doc);
       } catch (e) {
         console.warn('[bnz.XsltPatch] include inlining failed, using the stylesheet as is:', e);
