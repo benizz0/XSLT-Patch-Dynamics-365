@@ -198,6 +198,48 @@
       report('import inside an include, negative priority, modes (DYN-006)',
         includedImport === 'J;My;Mz;Iv;Jw;Mm;' ? 'pass' : 'fail', includedImport);
 
+      // Issue #25 - DYN-006: a module imported from two places is inlined
+      // twice, each copy at its own precedence. Expected values checked
+      // against native libxslt 1.1.45.
+      var diamond = textTransform('/data/diamond.xsl', '<r><w/><e/></r>');
+      report('diamond import, shared module and its include (issue #25)',
+        diamond === 'D;E;nE;D' ? 'pass' : 'fail', diamond);
+      var twoLevels = textTransform('/data/twolevel.xsl', '<r><w/></r>');
+      report('module imported at two levels (issue #25)', twoLevels === 'D;' ? 'pass' : 'fail', twoLevels);
+      // Natively an error (duplicate named template): the fork keeps
+      // inlining a repeated include once, as before.
+      var includeTwice = textTransform('/data/include-twice.xsl', '<r><w/></r>');
+      report('include repeated at one precedence inlined once (issue #25)',
+        includeTwice === 'X;nX;X' ? 'pass' : 'fail', includeTwice);
+      var inlineReport = window.__bnzXsltInlineReport || {};
+      var truncatedCount = function () { return inlineReport.truncated ? inlineReport.truncated.length : -1; };
+      var truncatedBefore = truncatedCount();
+      var deep = textTransform('/data/deep.xsl', '<r/>');
+      var deepTruncated = truncatedCount() - truncatedBefore;
+      var lastTruncated = inlineReport.truncated ? inlineReport.truncated[inlineReport.truncated.length - 1] : '';
+      report('reference beyond 16 levels listed as truncated (issue #25)',
+        deep === 'deep;' && deepTruncated === 1 && /\/deep\.xsl$/.test(lastTruncated) ? 'pass' : 'fail',
+        deep + ' truncated=' + deepTruncated + ' ' + lastTruncated);
+      var leafFetches = 0;
+      var realOpen = XMLHttpRequest.prototype.open;
+      XMLHttpRequest.prototype.open = function (method, url) {
+        if (/wide-leaf\.xsl/.test(String(url))) {
+          leafFetches++;
+        }
+        return realOpen.apply(this, arguments);
+      };
+      var wide;
+      truncatedBefore = truncatedCount();
+      try {
+        wide = textTransform('/data/wide.xsl', '<r><w/></r>');
+      } finally {
+        XMLHttpRequest.prototype.open = realOpen;
+      }
+      var wideTruncated = truncatedCount() - truncatedBefore;
+      report('shared import graph capped, one fetch per URL (issue #25)',
+        wide === 'L;' && wideTruncated === 16 && leafFetches === 1 ? 'pass' : 'fail',
+        wide + ' truncated=' + wideTruncated + ' fetches=' + leafFetches);
+
       // document() stays unsupported synchronously: clean error, and the Wasm
       // module must keep working for the next transform.
       var docErr = (function () {

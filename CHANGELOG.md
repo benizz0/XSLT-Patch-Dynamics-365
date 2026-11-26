@@ -53,6 +53,18 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
 ### Corrigé
 
+- **Import en diamant : mauvaise précédence (DYN-006, #25).** Quand deux modules importent
+  le même module, celui-ci n'était inliné qu'une fois, sous le premier, avec un rang trop
+  bas : une règle du premier importeur l'emportait (`B;` au lieu de `D;` en libxslt natif).
+  Le module est maintenant inliné une fois par import, chacun à son rang ; seule la chaîne
+  des ancêtres coupe les cycles. Un `xsl:include` répété au même rang reste inliné une seule
+  fois. Chaque URL n'est téléchargée qu'une fois par feuille (XHR synchrone), et l'inlining
+  s'arrête à 256 copies pour borner un graphe d'imports partagé.
+- **Références au-delà de 16 niveaux non signalées (DYN-006, #25).** Elles étaient retirées
+  sans trace. Elles sont listées dans `__bnzXsltInlineReport.truncated`, et
+  `bnz.XsltPatch.report()` les expose dans le nouveau champ `includesTruncated`.
+  Banc : 5 cas (diamant, module importé à deux niveaux, `include` répété, profondeur,
+  largeur avec un seul téléchargement par URL), attentes vérifiées contre libxslt 1.1.45.
 - **Fonctions globales de la page écrasées par le polyfill (DYN-010, #15).** Upstream exporte
   `showError`, `parseAndReplaceCurrentXMLDoc`, `loadXmlWithXsltFromBytes`,
   `loadXmlWithXsltFromUrl` et `loadXmlUrlWithXsltWhenReady` sur `window` sans vérifier que le

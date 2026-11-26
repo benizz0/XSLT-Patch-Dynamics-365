@@ -204,6 +204,7 @@
     var windows = [];
     var xsltErrors = [];
     var includesFailed = [];
+    var includesTruncated = [];
     var collectWindow = function (win, depth) {
       var doc = X.docOf(win);
       if (!doc || depth > 12) {
@@ -226,6 +227,12 @@
       if (polyfillInfo && polyfillInfo.includes && polyfillInfo.includes.failed) {
         for (j = 0; j < polyfillInfo.includes.failed.length; j++) {
           includesFailed.push(polyfillInfo.includes.failed[j]);
+        }
+      }
+      // References dropped beyond the nesting or copy limits (DYN-006).
+      if (polyfillInfo && polyfillInfo.includes && polyfillInfo.includes.truncated) {
+        for (j = 0; j < polyfillInfo.includes.truncated.length; j++) {
+          includesTruncated.push(polyfillInfo.includes.truncated[j]);
         }
       }
       windows.push({
@@ -267,6 +274,7 @@
       windows: windows,
       xsltErrors: xsltErrors,
       includesFailed: includesFailed,
+      includesTruncated: includesTruncated,
       journal: state.journal.slice(-40)
     };
   };
